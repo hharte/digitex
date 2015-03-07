@@ -1,0 +1,42 @@
+; $Id: digitex 1949 2008-06-19 03:55:11Z hharte $
+;
+; Startup file for the Digitex Monitor.
+;
+set cpu 64k
+set cpu banked
+set cpu itrap
+set cpu z80
+set cpu noaltairrom
+;set cpu switcher
+set hdsk dis
+;set cpu verbose
+
+; Clear RAM, and load CompuPro GO86 ROM Image
+;set cpu 8086
+;set cpu clearmemory
+set cpu z80
+
+; Configure Console UART (Emulating System Support 1 Serial Port)
+set sio ansi
+set sio verbose
+set sio port=00/0/0/0/0/F/0/T
+set sio port=01/0/81/0/84/F/0/F
+
+; Configure disk controller
+set wd179x en
+set wd179x iobase=0c
+
+; Configure ADC Super-Six CPU Board
+set adcs6 en
+set adcs6 rom
+att adcs60 adc6boot.imd
+
+; Configure ADC HDC-1001 Disk Controller
+set hdc1001 iobase=e0
+set hdc1001 en
+set hdc1001 debug
+
+load digitex.bin f000
+
+; Boot Digitex Monitor
+g f000

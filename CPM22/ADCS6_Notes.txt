@@ -1,0 +1,70 @@
+Assemble the CBIOS:
+
+m80 suprbios,suprbios=suprbios
+l80 suprbios,suprbios/n/e (remove first three bytes from generated .COM file.)
+BIOS @EA00
+BDOS @DC00
+CCP  @D400
+
+RMAC os2ccp
+a:link os2ccp[L0,P0]
+
+RMAC os3bdos
+a:link os3ccp[L0,P0]
+
+Now put the CCP, BDOS, and CBIOS into a binary file called CPM.SYS
+
+CCP:  file offset 0
+BDOS: file offset 800h
+BIOS: file offset 1600h
+
+I have saved a file called CPMCB.BIN which has the CCP and BDOS at the correct locations.  Just
+paste the BIOS at the end.
+
+Notes:
+
+trk0.ldr is the loader for 8"
+trk048.ldr is for 5.25" Ds/DD
+trk096.ldr is for 5.25" Ds/HD
+
+
+
+Booting:
+DIGITEX Monitor version 1.2.A -- 10/06/83
+
+Press "H" for Help
+
+Attempting to boot...
+Press any key to abort boot.
+
+ >
+ >F0,EA00,00
+ >LD000
+D000 00 3E
+D001 00 6F
+D002 00 D3
+D003 00 16
+D004 00 C3
+D005 00 00
+D006 00 01
+D007 00
+ >B	
+FDC COLD BOOT ERROR CODE F2
+ >GD000
+Super Bios v. 2.22
+
+60K CP/M 2.2 installed
+
+Default console is serial port 1
+Default printer is parallel printer driver
+
+
+A>dir
+A: PIP      COM : CPM      SYS : LDRGEN   COM : FMT8     COM
+A: MBASIC   COM : STAT     COM : TRK2     LDR : TRK0     LDR
+A>ldrgen trk0.ldr
+LDRGEN 2.42
+
+Write loader to Hard or Floppy  drive    (H,F) : F
+Physical drive no. of loader destination (0-3) : 0
+
