@@ -1,3 +1,5 @@
+Notes by Howard M. Harte, circa 2007/2008.
+
 Assemble the CBIOS:
 
 m80 suprbios,suprbios=suprbios
