@@ -54,6 +54,7 @@ CREST	EQU	10H			; Restore heads
 CREAD	EQU	20H			; Read sector
 CWRITE	EQU	30H			; Write sector
 CFORM	EQU	50H			; Format track
+	PAGE
 
 	ASEG
 	ORG	0100H

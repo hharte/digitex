@@ -35,7 +35,6 @@ BUFF	EQU	80H			; default dma buffer
 
 ;
 ;
-
 BOOT:	
 	LD	A,01101111B		;enable memory, turn prom and power on jump off
 	OUT	(16H),A	

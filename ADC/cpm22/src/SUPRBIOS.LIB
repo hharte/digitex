@@ -1,7 +1,7 @@
 
 
 
-		.xlist
+;;		.xlist
 
 ;;--------------------------------	
 ;; AUTHOR  Marcus G. Calescibetta
@@ -507,7 +507,7 @@ dno	defl	dno+1
 ;; QUANTUM 2010 HARD DISK
 ;;------------------------
 
-;;	if	drvtyð eñ q2010
+;;	if	drvtyï¿½ eï¿½ q2010
 ;;	dph	%dno
 ;;	dpb	%dno+0,128,5,31,1,2043,1023,0,1,4096
 ;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,2
@@ -1406,4 +1406,4 @@ shff	macro	num
 	endm
 
 	.list
- 
+

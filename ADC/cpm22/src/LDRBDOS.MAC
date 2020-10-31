@@ -9,7 +9,7 @@ memory	equ	16h			;to enable monitor PROM
 false	equ	0
 true	equ	not false
 
-devlp	equ	false			; true for dev ldr -- ask what to load
+devlp	equ	false			;true for devlopment loader to ask what to load
 nmbch	equ	1			; number of choices to choose from
 nmbcpm	equ	1			; number of cp/m choices
 turbo	equ	false			; true for turbodos or CP/M 3.0 loader
@@ -27,6 +27,7 @@ setdma	equ	bios+24h
 read	equ	bios+27h
 sectran	equ	bios+30h
 
+page
 	.phase	00100h
 
 start:
@@ -539,8 +540,6 @@ permerr:
 	db	4,'Read'
 nofile:	db	14,'File not found'
 errmsg:	db	14,' error: file  '
-
 boottbl:
-	ds	1024-($-start),0
-
-	end
+	ds	1024-($-start),0	; Pad to 1024 bytes so BIOS starts at 480H.
+	end				; in TRK0.LDR.

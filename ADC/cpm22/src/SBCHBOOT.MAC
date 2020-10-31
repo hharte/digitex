@@ -1,18 +1,38 @@
-	title	Track 0 - Sector 0 Cold Boot Loader 
+	TITLE	ADVANCED DIGITAL HARD DISK SECTOR 0 BOOT FOR SUPER QUAD Oct 26 1982 13:30
 
+;*****************************************************************
+;**                                                             **
+;**     ADVANCED DIGITAL SUPER QUAD Z80 SBC                     **
+;**                                                             **
+;**         HARD DISK BOOT                                      **
+;**                                                             **
+;**     This is the cold boot code to load the loader           **
+;**     from track 0 on the hard disk into memory               **
+;**     at 100h and run it.                                     **
+;**                                                             **
+;**                                                             **
+;**     Written by:                                             **
+;**                                                             **
+;**         Greg Lindberg                                       **
+;**                                                             **
+;*****************************************************************
+
+	if2
+	.printx	/pass 2/
+	endif
+
+	SUBTTL	SYMBOLIC EQUATES
+page	60
 	.z80
 ;
-; Memory port equates 
+;	Port equates for super quad
 ;
-
 memry	equ	16h			;memory control port
-
 ;
-; HDC-1001 port equates
+;***   Port equates for HDC1001   ***
 ;
-
 	include	CONFIG.LIB
-
+;
 ;HDBASE	EQU	0E0H			; Base of HDC1001
 HDCDATA	EQU	HDBASE			; Data port
 WPC	EQU	HDBASE+1		; Write precomp port
@@ -24,27 +44,23 @@ CYLHI	EQU	HDBASE+5		; Cylinder high
 SDH	EQU	HDBASE+6		; Size/Drive/Head
 COMND	EQU	HDBASE+7		; Command register
 STATUS	EQU	COMND			; Status register
-
 ;
-; HDC-1001 commands
+;***   Command equates for HDC1001   ***
 ;
-
 CREST	EQU	10H			; Restore command
 CSEEK	EQU	70H			; Seek command
 CREAD	EQU	20H			; Read sector command
-
 ;
 ; Start
 ;
-
 start:
 	ld	A,06fh			;get command to memory port
 	out	(memry),A		;turn off prom
-
+;
 	ld	BC,hdcdata		;get port number and transfer length
 	ld	HL,080h			;starting address
 	ld	DE,10			;number of sectors to transfer
-
+;
 loop:
 	ld	A,D			;send sector to controller
 	out	(secno),A
@@ -56,15 +72,15 @@ swait:
 	jp	m,swait
 	rra				;any errors
 	jr	c,herror
-
+;
 	inir				;get data
 	inir
-
+;
 	inc	D			;increment sector to read
 	dec	E			;decrement sector count
 	jr	nz,loop			;if more go do it
 	jp	100h			;else go execute loader
-
+;
 herror:	
 	ld	A,04fh			;turn prom back on
 	out	(memry),A
