@@ -48,11 +48,12 @@ sa1004  	equ	010dh		;; Shugart 1004
 ;;tl226		equ	0318h		;; Tulin 226
 ;;tl240		equ	0419h		;; Tulin 240
 ;;q2010		equ	010eh		;; Quantum 2010
-;;q2020		equ	020fh		;; Quantum 2020
+q2020		equ	020fh		;; Quantum 2020
 ;;q2030		equ	0310h		;; Quantum 2030
 ;;q2040		equ	0411h		;; Quantum 2040
 ;;m4010		equ	0112h		;; Mini Scribe 4010
-;;m4020		equ	0213h		;; Mini Scribe 4020;;m3425		equ	0317h		;; Mini Scribe 3425
+;;m4020		equ	0213h		;; Mini Scribe 4020
+;;m3425		equ	0317h		;; Mini Scribe 3425
 ;;dma5		equ	0114h		;; DMA 5 removable
 ;;dma55c	equ	0215h		;; DMA 5/5 cartriage boot
 ;;dma55f	equ	0216h		;; DMA 5/5 fixed boot
@@ -106,7 +107,8 @@ cnt	defl	cnt+1
 cnt	defl	cnt+1
 	else
 
-	if	(drvtyp eq f8) or (drvtyp eq f548) or (drvtyp eq f596)	dmap	%dno,drvtyp,%fpdno
+	if	(drvtyp eq f8) or (drvtyp eq f548) or (drvtyp eq f596)
+	dmap	%dno,drvtyp,%fpdno
 fpdno	defl	fpdno+1
 dno	defl	dno+1
 cnt	defl	cnt+1
@@ -160,7 +162,8 @@ fdpb548:
 ;;	dpb	10,20,4,15,1,45,63,16,3,2048
 ;;
 ;;-----------------------------------------------------
-	dpb	10,20,4,15,1,45,63,16,3,2048
+
+	dpb	10,20,4,15,1,45,63,16,3,2048
 	dpb	11,32,4,15,0,77,63,32,1,2048
 	dpb	12,64,4,15,0,155,127,32,1,2048
 
@@ -214,7 +217,8 @@ frst548	defl	0
 
 	alvcsv	%dno,155,32
 dno	defl	dno+1
-	endif
+
+	endif
 
 ;;--------------------------------
 ;; 5.25" 96-TPI FLOPPY DISK DRIVE
@@ -268,7 +272,8 @@ tran8:
 	db	1,7,13,19,25,5,11,17,23,3,9,15,21
 	db	2,8,14,20,26,6,12,18,24,4,10,16,22
 	
-frst8	defl	0	endif
+frst8	defl	0
+	endif
 
 	alvcsv	%dno,607,32
 dno	defl	dno+1
@@ -322,7 +327,8 @@ dno	defl	dno+1
 ;;------------------
 ;; ST 503 HARD DISK
 ;;------------------
-;;;;	if	drvtyp eq st503 
+;;
+;;	if	drvtyp eq st503 
 ;;	dph	%dno
 ;; 	dpb	%dno+0,128,5,31,1,607,511,0,1,4096
 ;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,2
@@ -430,7 +436,8 @@ dno	defl	dno+1
 ;;	dph	%dno+1
 ;;	dpb	%dno+0,384,5,31,1,2047,1023,0,1,4096
 ;;	dpb	%dno+1,384,5,31,1,1611,1023,0,172,4096
-;;	ddb	%dno+0,%hpdno,0,3,4096,512,16,6;;	ddb	%dno+1,%hpdno,0,3,4096,512,16,6
+;;	ddb	%dno+0,%hpdno,0,3,4096,512,16,6
+;;	ddb	%dno+1,%hpdno,0,3,4096,512,16,6
 ;;	alvcsv	%dno+0,2047,0
 ;;	alvcsv	%dno+1,1611,0
 ;;dno	defl	dno+2
@@ -484,7 +491,8 @@ dno	defl	dno+1
 ;;dno	defl	dno+1
 ;;	endif
 ;;
-;;-------------------;; SA 1004 HARD DISK
+;;-------------------
+;; SA 1004 HARD DISK
 ;;-------------------
 ;;
 	if	drvtyp eq sa1004
@@ -511,19 +519,19 @@ dno	defl	dno+1
 ;; QUANTUM 2020 HARD DISK
 ;;------------------------
 
-;;	if	drvtyp eq q2020
-;;	dph	%dno
-;;	dph	%dno+1
+	if	drvtyp eq q2020
+	dph	%dno
+	dph	%dno+1
 
 
 ;; Partion drive by track offset (use Q2020 loader)
 	
-;;	dpb	%dno+0,256,5,31,1,2047,1023,0,1,4096
-;;	dpb	%dno+1,256,5,31,1,2039,1023,0,257,4096
-;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,4
-;;	ddb	%dno+1,%hpdno,0,0,4096,512,16,4
-;;	alvcsv	%dno+0,2047,0
-;;	alvcsv	%dno+1,2039,0
+	dpb	%dno+0,256,5,31,1,2047,1023,0,1,4096
+	dpb	%dno+1,256,5,31,1,2039,1023,0,257,4096
+	ddb	%dno+0,%hpdno,0,0,4096,512,16,4
+	ddb	%dno+1,%hpdno,0,0,4096,512,16,4
+	alvcsv	%dno+0,2047,0
+	alvcsv	%dno+1,2039,0
 
 ;; Partion drive by head offset (use Q2010 loader)
 
@@ -538,11 +546,12 @@ dno	defl	dno+1
 ;;	dpb	%dno+0,128,5,31,1,2043,1023,0,1,4096
 ;;	dpb	%dno+1,128,5,31,1,2043,1023,0,1,4096
 ;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,2
-;;	ddb	%dno+1,%hpdno,2,0,4096,512,16,2;;	alvcsv	%dno+0,2043,0
+;;	ddb	%dno+1,%hpdno,2,0,4096,512,16,2
+;;	alvcsv	%dno+0,2043,0
 ;;	alvcsv	%dno+1,2043,0
 
-;;dno	defl	dno+2
-;;	endif
+dno	defl	dno+2
+	endif
 
 ;;------------------------
 ;; QUANTUM 2030 HARD DISK
@@ -592,7 +601,8 @@ dno	defl	dno+1
 ;;dno	defl	dno+4
 ;;	endif
 ;;
-;;;;---------------------------
+;;
+;;---------------------------
 ;; MINISCRIBE 4010 HARD DISK
 ;;---------------------------
 ;;
@@ -646,7 +656,8 @@ dno	defl	dno+1
 ;;
 ;;	if	drvtyp eq tl213
 ;;	dph	%dno
-;;	dph	%dno+1;;
+;;	dph	%dno+1
+;;
 ;;	dpb	%dno+0,128,5,31,1,2047,1023,0,1,4096
 ;;	dpb	%dno+1,128,5,31,1,547,511,0,512,4096
 ;;
@@ -700,7 +711,8 @@ dno	defl	dno+1
 ;;
 ;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,6
 ;;	ddb	%dno+1,%hpdno,0,0,4096,512,16,6
-;;	ddb	%dno+2,%hpdno,0,0,4096,512,16,6;;	ddb	%dno+3,%hpdno,0,0,4096,512,16,6
+;;	ddb	%dno+2,%hpdno,0,0,4096,512,16,6
+;;	ddb	%dno+3,%hpdno,0,0,4096,512,16,6
 ;;
 ;;	alvcsv	%dno+0,2047,0
 ;;	alvcsv	%dno+1,2047,0
@@ -754,7 +766,8 @@ dno	defl	dno+1
 ;;dno	defl	dno+2
 ;;	endif
 ;;
-;;------------------;; ST 425 HARD DISK
+;;------------------
+;; ST 425 HARD DISK
 ;;------------------
 ;;
 ;;	if	drvtyp eq st425
@@ -808,7 +821,8 @@ dno	defl	dno+1
 ;;	alvcsv	%dno+0,2047,0
 ;;	alvcsv	%dno+1,2047,0
 ;;	alvcsv	%dno+2,0873,0
-;;;;dno	defl	dno+3
+;;
+;;dno	defl	dno+3
 ;;	endif
 
 ;;-------------------
@@ -862,7 +876,8 @@ dno	defl	dno+1
 ;;	dpb	%dno+2,384,5,31,1,2047,1023,0,343,4096
 ;;	dpb	%dno+3,384,5,31,1,2047,1023,0,514,4096
 ;;	dpb	%dno+4,384,5,31,1,1743,1023,0,685,4096
-;;;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,6
+;;
+;;	ddb	%dno+0,%hpdno,0,0,4096,512,16,6
 ;;	ddb	%dno+1,%hpdno,0,0,4096,512,16,6
 ;;	ddb	%dno+2,%hpdno,0,0,4096,512,16,6
 ;;	ddb	%dno+3,%hpdno,0,0,4096,512,16,6
@@ -916,7 +931,8 @@ dno	defl	dno+1
 ;;-----------------
 ;; MX 85 HARD DISK
 ;;-----------------
-;;;; 1024 cylinders
+;;
+;; 1024 cylinders
 ;;    8 heads
 ;;
 
@@ -970,7 +986,8 @@ dno	defl	dno+1
 ;;
 ;;	if	drvtyp eq cm6640
 ;;
-;;	dph	%dno;;	dph	%dno+1
+;;	dph	%dno
+;;	dph	%dno+1
 ;;	dph	%dno+2
 ;;	dph	%dno+3
 ;;
@@ -1024,7 +1041,8 @@ dno	defl	dno+1
 ;; FUJITSU M2242AS
 ;;-----------------
 ;;
-;; 754 cylinders;;   7 heads
+;; 754 cylinders
+;;   7 heads
 ;;
 
 ;;	if	drvtyp eq FU55
@@ -1078,7 +1096,8 @@ dno	defl	dno+1
 ;;	dph	%dno+4
 ;;	dph	%dno+5
 ;;	dph	%dno+6
-;;	dph	%dno+7;;	dph	%dno+8
+;;	dph	%dno+7
+;;	dph	%dno+8
 ;;
 ;;	dpb	%dno+0,704,5,31,1,2045,1023,0,1,4096
 ;;	dpb	%dno+1,704,5,31,1,2045,1023,0,94,4096
@@ -1132,7 +1151,8 @@ tran8:					; no 8" floppy used but need label
 	endif
 	if	frst548 eq 0ffffh
 fdpb548:				; no 5"-48 tpi drv used but need label
-fddb548:				; no 5"-48 tpi drv used but need labeltran548:				; no 5"-48 tpi drv used but need label
+fddb548:				; no 5"-48 tpi drv used but need label
+tran548:				; no 5"-48 tpi drv used but need label
 	endif	
 	if	frst596 eq 0ffffh
 fdpb596:				; no 5"-96 tpi drv used but need label
@@ -1186,7 +1206,8 @@ xxdmap	macro
 ;;---------------------------
 
 dph	macro	dn,dtyp
-	.lall
+
+	.lall
 ;-------------------
 ; DISK HEADER BLOCK
 ;-------------------
@@ -1240,7 +1261,8 @@ dpb&dn:
 
 ddb	macro	dn,pd,hdoff,srate,bsiz,hsiz,hsspt,hhd
 
-	.lall;-----------------------
+	.lall
+;-----------------------
 ; DISK DEBLOCKING BLOCK
 ;-----------------------
 	.xall
@@ -1294,7 +1316,8 @@ csv&dn:	ds	cks			; drive directory check vector
 rsvdir	macro	dn,drm,bsiz
 
 x	defl	((drm+1)/(bsiz/32))
-y	defl	080hdone	defl	0
+y	defl	080h
+done	defl	0
 al0&dn	defl	0
 al1&dn	defl	0
 
@@ -1348,7 +1371,8 @@ ssiz	macro	secsiz
 	if	secsiz eq 512
 	db	020h			; sdh reg sec siz 020 = 512 bps
 	else
-	if	secsiz eq 256
+
+	if	secsiz eq 256
 	db	000h			; sdh reg sec siz 000 = 256 bps
 	else
 
