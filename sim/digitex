@@ -7,14 +7,8 @@ set cpu banked
 set cpu itrap
 set cpu z80
 set cpu noaltairrom
-;set cpu switcher
 set hdsk dis
 ;set cpu verbose
-
-; Clear RAM, and load CompuPro GO86 ROM Image
-;set cpu 8086
-;set cpu clearmemory
-set cpu z80
 
 ; Configure Console UART (Emulating System Support 1 Serial Port)
 set sio ansi
@@ -29,14 +23,24 @@ set wd179x iobase=0c
 ; Configure ADC Super-Six CPU Board
 set adcs6 en
 set adcs6 rom
-att adcs60 adc6boot.imd
+set adcs6 debug
+att adcs60 ../CPM22/ADC6BOOT.IMD
 
 ; Configure ADC HDC-1001 Disk Controller
 set hdc1001 iobase=e0
 set hdc1001 en
 set hdc1001 debug
 
-load digitex.bin f000
+d d000 3e
+d d001 6f
+d d002 d3
+d d003 16
+d d004 c3
+d d005 00
+d d006 01
+d d007 00
+
+echo At the "FDC COLD BOOT ERROR CODE F2" error message, type 'GD000'
 
 ; Boot Digitex Monitor
 g f000

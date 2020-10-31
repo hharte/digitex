@@ -11,8 +11,8 @@ Included in the distribution are:
 
 1. My notes in CPM22/ADCS6_Notes.txt along with CBIOS source.
 2. The Digitex Monitor ROM image and disassembly (somewhat commented) in Monitor/
-3. The SIMH configuration file in simh/
-4. Some OASIS disk images in OASIS/ (Not sure if I ever got these to work.)
+3. The SIMH configuration file in sim/
+4. Some OASIS disk images in OASIS/ (These do not work in simh due to missing support for the Z80-CTC controller in the s100_adcs6.c file.)
 
 Source code for the simulator can be found here:
 
@@ -20,13 +20,12 @@ https://github.com/simh/simh/blob/master/AltairZ80/s100_adcs6.c
 
 All about ImageDisk (.IMD) with tools:
 
-http://www.classiccmp.org/dunfield/img/index.htm
+   * http://www.classiccmp.org/dunfield/img/index.htm
 
 More files and Docs related to Advanced Digital Corp (ADC):
 
-http://bitsavers.trailing-edge.com/pdf/advancedDigitalCorp/
-http://bitsavers.trailing-edge.com/bits/AdvancedDigitalCorp/
+   * http://bitsavers.trailing-edge.com/pdf/advancedDigitalCorp/
+   * http://bitsavers.trailing-edge.com/bits/AdvancedDigitalCorp/
 
 It has been a long time since I played with this stuff, but I figured I'd put it out there for others to mess around with either in simulation or with real hardware.
-
 
