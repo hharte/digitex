@@ -828,4 +828,5 @@ cdisk:	ds	1	;current disk
 sdisk:	ds	1	;selected disk for current operation
 			;none=0, a=1, b=2 ...
 bptr:	ds	1	;buffer pointer
+ccpad:	ds      14      ;Pad out to 128-byte boundary
 	end	ccploc
