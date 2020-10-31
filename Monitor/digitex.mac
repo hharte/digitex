@@ -10,96 +10,125 @@
 ; on Wednesday, 31 of March 2004 at 04:54 PM
 ; 
 
-NUL	EQU	00H
-CR	EQU	10H
-LF	EQU	13H
+pbase:
 
-FDSTAT	EQU	0CH
-FDTRK	EQU	0DH
-FDSEC	EQU	0EH
-FDDATA	EQU	0FH
-WAIT	EQU	14H
+    .phase  0f000h
 
+promsiz equ 800h
 
-	ORG	0F000H
+NULL    EQU 00H
+CR      EQU 10H
+LF      EQU 13H
+
+FDSTAT  EQU 0CH
+FDTRK   EQU 0DH
+FDSEC   EQU 0EH
+FDDATA  EQU 0FH
+WAIT    EQU 14H
+BAUDRD  EQU 15H                 ; Read: Baud rate DIP switch S7
+EXTADR  EQU 15H                 ; Write: S-100 Extended Addressing bits 23:16
+MEMCTL0 EQU 16H
+MEMCTL1 EQU 17H
+BAUDWR  EQU 18H
+
+HDDAT   EQU 0E0H
+HDERG   EQU 0E1H
+HDSCNT  EQU 0E2H
+HDSEC   EQU 0E3H
+HDCYLO  EQU 0E4H
+HDCYHI  EQU 0E5H
+HDSDH   EQU 0E6H
+HDCMD   EQU 0E7H
+
+ZECHO   EQU 0EE01H
+FDRDFG  EQU 0EE01H
+CURADR  EQU 0EE02H
+LEE04   EQU 0EE04H              ; 6F3E = LD A,6FH
+FDCURSC EQU 0EE08H              ; Current sector of the floppy drive.
+
+STACK   EQU 0EE64H
+SYSBASE EQU 0BFFCH
 
         JP      START
-        JP      PR$CHAR			; Echoes a character on the console serial port.
-        JP      GET$CHAR		; Waits for a serial port character to be input.
-        JP      INKEY			; Returns serial character if available, but does not wait for it.
-        JP      GETCHE			; Get a character from the Console port, and if printable, echo it.
-        JP      PR$MSG			; Prints a NUL terminated string on the console.
-        JP      PR$CRLF			; Prints a CR,LF to the console serial port.
-        JP      LF106
-        JP      LF114
-        JP      PR$HEX			; Print Hex Byte in A
-        JP      PR$WRD			; Print Hex Word in HL
-        JP      RD$HEX			; Read Hex Digit into A
-        JP      LF14A
+        JP      PR$CHAR         ; Echoes a character on the console serial port.
+        JP      GET$CHAR        ; Waits for a serial port character to be input.
+        JP      INKEY           ; Returns serial character if available, but does not wait for it.
+        JP      GETCHE          ; Get a character from the Console port, and if printable, echo it.
+        JP      PR$MSG          ; Prints a NULL terminated string on the console.
+        JP      PR$CRLF         ; Prints a CR,LF to the console serial port.
+        JP      PR$SPACE
+        JP      PR$HEX1
+        JP      PR$HEX          ; Print Hex Byte in A
+        JP      PR$WRD          ; Print Hex Word in HL
+        JP      RD$HEX2N        ; Read 2 Hex Digits into A
+        JP      RD$HEX4N        ; Read 4 Hex Digits
         JP      LF177
-        JP      LF1A1
-        JP      LF1FA
+        JP      TESTMEM
+        JP      NEGDE
         JP      HBOOTER
         JP      FBOOTER
         JP      INP
         JP      OUTP
 
 START:  
-	IN      A,(15H)			; Read baud rate from J7
-        OUT     (18H),A			; Set baud rate
+        IN      A,(BAUDRD)          ; Read baud rate from J7
+        OUT     (BAUDWR),A          ; Set baud rate
         BIT     6,A
-        JR      Z,USERAM                ; Bit 6=0, use on-board memory
+        JR      Z,USERAM            ; Bit 6=0, use on-board memory
 
 ; Use RAM on the S-100 bus, by disabling all on-board RAM.
 NORAM:  XOR     A
-        OUT     (15H),A			; Set S-100 A[23:16] address lines
+        OUT     (EXTADR),A          ; Set S-100 A[23:16] address lines
         OUT     (40H),A
-        OUT     (17H),A			; Disable Upper 64K RAM
+        OUT     (MEMCTL1),A         ; Disable Upper 64K RAM
         LD      A,40H
-        OUT     (16H),A			; Disable Lower 64K RAM, keep ROM enabled
+        OUT     (MEMCTL0),A         ; Disable Lower 64K RAM, keep ROM enabled
         LD      HL,603EH
         JR      LF05E                   ; (+0ah)
 
 ; Use on-board RAM, enable all RAM in lower 64K RAM.
 USERAM: XOR     A
-        OUT     (17H),A
+        OUT     (MEMCTL1),A
         LD      A,4FH
-        OUT     (16H),A
+        OUT     (MEMCTL0),A
         LD      HL,6F3EH
 
-lf05e:  LD      (0EE04H),HL
+lf05e:  LD      (LEE04),HL
         XOR     A
-        LD      (0EE01H),A
-        LD      SP,0EE64H
+        LD      (FDRDFG),A
+        LD      SP,STACK
         LD      HL,0F3CAH
         LD      BC,0801H
         OTIR    
 
         LD      HL,SIGNON
         CALL    PR$MSG
-        JP      BOOT			; Attempt to boot.
+        JP      BOOT            ; Attempt to boot.
 
+;---------------------
+; Top of command loop
+;---------------------
 MONITOR:  
-	LD      SP,0EE64H		; Set up stack
-        LD      HL,PROMPT		; Display prompt
+        LD      SP,STACK        ; Set up stack
+        LD      HL,PROMPT       ; Display prompt
         CALL    PR$MSG
-        CALL    GETCHE			; Get character from console and echo it.
+        CALL    GETCHE          ; Get character from console and echo it.
         LD      B,A
         LD      HL,CMDTABLE
 lf089:  LD      A,(HL)
-        CP      0FFH			; Are we at the end of the table?
-        JR      Z,LF096                 ; Yes, print 'UNDEFINED' message
-        CP      B			; Do we have a command match?
-        JR      Z,CMD$LF09E             ; (+0dh)
+        CP      0FFH            ; Are we at the end of the table?
+        JR      Z,GOTCMD        ; Yes, print 'UNDEFINED' message
+        CP      B               ; Do we have a command match?
+        JR      Z,CMD$MATCH     ; (+0dh)
         INC     HL
         INC     HL
         INC     HL
         JR      LF089                   ; (-0dh)
-lf096:  LD      HL,UNDEFD
+GOTCMD: LD      HL,UNDEFD
 lf099:  CALL    PR$MSG
         JR      MONITOR                   ; (-25h)
 CMD$MATCH:
-	INC     HL
+        INC     HL
         LD      E,(HL)
         INC     HL
         LD      D,(HL)
@@ -108,42 +137,42 @@ CMD$MATCH:
 
 ; Print character on the Console Serial Port
 PR$CHAR:
-	PUSH    AF
+        PUSH    AF
 TXR$LP:  
-	IN      A,(01H)			; Get transmitter status
-        AND     04H			; Is transmitter ready?
-        JR      Z,TXR$LP                ; No, keep waiting
-        POP     AF			; restore character to output
-        OUT     (00H),A			; Send it to UART
+        IN      A,(01H)         ; Get transmitter status
+        AND     04H             ; Is transmitter ready?
+        JR      Z,TXR$LP        ; No, keep waiting
+        POP     AF              ; restore character to output
+        OUT     (00H),A         ; Send it to UART
         RET     
 
 INKEY:  
-	IN      A,(01H)			; Get receiver status
-        AND     01H			; Is a character waiting?
-        RET     Z			; No Rx character pending, return
-        JR      IN$CHAR                 ; Character pending, go get it...
+        IN      A,(01H)         ; Get receiver status
+        AND     01H             ; Is a character waiting?
+        RET     Z               ; No Rx character pending, return
+        JR      IN$CHAR         ; Character pending, go get it...
 
 GET$CHAR:  
-	IN      A,(01H)			; Get receiver status
-        AND     01H			; Is a character waiting?
-        JR      Z,GET$CHAR              ; No, keep waiting
+        IN      A,(01H)         ; Get receiver status
+        AND     01H             ; Is a character waiting?
+        JR      Z,GET$CHAR      ; No, keep waiting
 IN$CHAR:
-	IN      A,(00H)			; Read character from serial port.
-        AND     7FH			; mask off parity bit
+        IN      A,(00H)         ; Read character from serial port.
+        AND     7FH             ; mask off parity bit
         CP      'a'
         RET     C
 
-        CP      7BH	; 'DEL' character
+        CP      7BH             ; 'DEL' character
         RET     NC
 
-        AND     5FH	; 
+        AND     5FH ; 
         RET     
 
-GETCHE:  LD      A,0FFH
-        LD      (0EE00H),A
+GETCHE: LD      A,0FFH
+        LD      (ZECHO),A
         CALL    GET$CHAR
         PUSH    AF
-        LD      A,(0EE00H)
+        LD      A,(ZECHO)
         AND     A
         JR      NZ,LF0DA                ; (+02h)
         POP     AF
@@ -163,12 +192,12 @@ MSG$LP: LD      A,(HL)
         INC     HL
         JR      MSG$LP                  ; (-0ah)
 MSG$DONE:
-	POP     HL
+        POP     HL
         POP     AF
         RET     
 
 PR$CRLF:  
-	PUSH    HL
+        PUSH    HL
         LD      HL,CRLF
         CALL    PR$MSG
         POP     HL
@@ -181,7 +210,7 @@ lf0f9:  CALL    INKEY
         RET     NC
 
         JR      LF0F9                   ; (-0dh)
-lf106:  PUSH    AF
+PR$SPACE:  PUSH    AF
         LD      A,20H
         JR      LF11D                   ; (+12h)
 PR$HEX: PUSH    AF
@@ -189,9 +218,9 @@ PR$HEX: PUSH    AF
         RRCA    
         RRCA    
         RRCA    
-        CALL    LF114
+        CALL    PR$HEX1
         POP     AF
-lf114:  PUSH    AF
+PR$HEX1: PUSH    AF
         AND     0FH
         ADD     A,90H
         DAA     
@@ -209,58 +238,63 @@ PR$WRD:  PUSH    AF
         POP     AF
         RET     
 
-RD$HEX:  CALL    GETCHE
+RD$HEX2N:  CALL    GETCHE
         CP      ','
-        RET     Z
+        RET     Z               ; end of #
 
         CP      ' '
-        RET     Z
+        RET     Z               ; end of #
 
         CP      '0'
-        RET     C			; < 0
+        RET     C               ; < 0, whoops
 
         CP      ':'
-        JP      C,LF147			; < 9
+        JP      C,ISNUM         ; < 9
         CP      'A'
-        RET     C
+        RET     C               ; whoops
 
-        CP      'G'			; < 'F'
+        CP      'G'             ; < 'F'
         CCF     
-        RET     C
+        RET     C               ; whoops
 
-        SUB     07H
-lf147:  SUB     30H
+        SUB     07H             ; convert A - F
+ISNUM:  SUB     30H             ; decode
         RET     
 
-lf14a:  PUSH    BC
+
+RD$HEX4N:
+        PUSH    BC
         PUSH    DE
         LD      C,00H
         LD      E,00H
-lf150:  CALL    RD$HEX
-        JR      NC,LF163                ; (+0eh)
-        CP      CR			; Carriage return?
+NLOOP:  CALL    RD$HEX2N
+        JR      NC,NISNUM               ; (+0eh)
+        CP      CR              ; Carriage return?
         SCF     
-        JR      NZ,LF174                ; (+1ah)
+        JR      NZ,BAD4N                ; (+1ah)
         LD      A,E
         OR      A
-        JR      NZ,LF173                ; (+15h)
+        JR      NZ,GOT2N                ; (+15h)
         SCF     
         LD      A,0DH
-        JR      LF174                   ; (+11h)
-lf163:  CP      10H
-        JR      NC,LF173                ; (+0ch)
-        INC     E
-        LD      B,A
-        LD      A,C
-        ADD     A,A
-        ADD     A,A
-        ADD     A,A
-        ADD     A,A
-        ADD     A,B
-        LD      C,A
-        JP      LF150
-lf173:  LD      A,C
-lf174:  POP     DE
+        JR      BAD4N                   ; (+11h)
+NISNUM: CP      16              ; Is it a number?
+        JR      NC,GOT2N        ; no, jump
+
+        INC     E               ; inc it
+
+        LD      B,A             ; save #
+
+        LD      A,C             ; get old
+        ADD     A,A             ; *2
+        ADD     A,A             ; *4
+        ADD     A,A             ; *8
+        ADD     A,A             ; *16
+        ADD     A,B             ; add in new #
+        LD      C,A             ;    -- and all to c
+        JP      NLOOP
+GOT2N:  LD      A,C
+BAD4N:  POP     DE
         POP     BC
         RET     
 
@@ -269,11 +303,11 @@ lf177:  PUSH    DE
         SCF     
         CCF     
         PUSH    AF
-lf17e:  CALL    RD$HEX
+lf17e:  CALL    RD$HEX2N
         JR      NC,LF190                ; (+0dh)
         CP      0DH
         JR      NZ,LF18C                ; (+05h)
-        CALL    LF106
+        CALL    PR$SPACE
         JR      LF19E                   ; (+12h)
 lf18c:  POP     AF
         SCF     
@@ -294,12 +328,12 @@ lf19e:  POP     AF
         POP     DE
         RET     
 
-lf1a1:  LD      (HL),A
+TESTMEM: LD      (HL),A
         CP      (HL)
         RET     Z
 
         PUSH    HL
-        LD      HL,MWERR
+        LD      HL,MWERR        ; Memory write error.
         CALL    PR$MSG
         POP     HL
         CALL    PR$WRD
@@ -309,18 +343,18 @@ LOAD:
         JP      NC,LF1BE
 lf1b8:  LD      HL,QMARKS
         JP      LF099
-lf1be:  LD      (0EE02H),HL
+lf1be:  LD      (CURADR),HL
 DOT:    CALL    PR$CRLF
-        LD      HL,(0EE02H)
+        LD      HL,(CURADR)
         CALL    PR$WRD
-        CALL    LF106
+        CALL    PR$SPACE
         LD      A,(HL)
         CALL    PR$HEX
-        CALL    LF106
-        CALL    LF14A
+        CALL    PR$SPACE
+        CALL    RD$HEX4N
         JP      C,LF1E4
-        CALL    LF1A1
-lf1dd:  LD      HL,(0EE02H)
+        CALL    TESTMEM
+lf1dd:  LD      HL,(CURADR)
         INC     HL
         JP      LF1BE
 lf1e4:  CP      0DH
@@ -329,10 +363,13 @@ lf1e4:  CP      0DH
         JP      Z,LF1DD
         CP      2DH
         JP      NZ,LF1B8
-DASH:   LD      HL,(0EE02H)
+DASH:   LD      HL,(CURADR)
         DEC     HL
         JP      LF1BE
-lf1fa:  PUSH    AF
+;-----------
+; Negate DE
+;-----------
+NEGDE:  PUSH    AF
         LD      A,D
         CPL     
         LD      D,A
@@ -343,13 +380,13 @@ lf1fa:  PUSH    AF
         POP     AF
         RET     
 
-DUMP:   CALL    LF27E
-        CALL    LF27E
-        CALL    LF1FA
+DUMP:   CALL    GET4DE
+        CALL    GET4DE
+        CALL    NEGDE
 lf20d:  CALL    PR$CRLF
         CALL    PR$WRD
-        CALL    LF106
-lf216:  CALL    LF106
+        CALL    PR$SPACE
+lf216:  CALL    PR$SPACE
         LD      A,(HL)
         CALL    PR$HEX
         CALL    LF23F
@@ -361,7 +398,7 @@ lf216:  CALL    LF106
         JP      Z,LF20D
         JP      LF216
 
-GO:     CALL    LF27E
+GO:     CALL    GET4DE
         EX      DE,HL
         JP      (HL)
 HELP:   LD      HL,HELP$MSG
@@ -374,51 +411,53 @@ lf23f:  PUSH    HL
         INC     HL
         RET     
 
-MOVE:   CALL    LF27E
+MOVE:   CALL    GET4DE
         PUSH    DE
-        CALL    LF27E
-        CALL    LF27E
+        CALL    GET4DE
+        CALL    GET4DE
         EX      DE,HL
         EX      (SP),HL
-        ADC     A,L
-        JP      M,L7EF1
-        EX      (SP),HL
-        CALL    LF1A1
+
+        CALL    NEGDE
+MLOOP:  LD  A,(HL)
+        EX  (SP),HL
+        CALL    TESTMEM
         INC     HL
         EX      (SP),HL
         CALL    LF23F
         CALL    CHK$CHAR
-        JP      LF256
-FILL:   CALL    LF27E
-        CALL    LF27E
-        CALL    LF1FA
-        CALL    LF14A
+        JP      MLOOP
+
+FILL:   CALL    GET4DE
+        CALL    GET4DE
+        CALL    NEGDE
+        CALL    RD$HEX4N
         JP      C,LF1B8
-lf275:  CALL    LF1A1
+lf275:  CALL    TESTMEM
         CALL    LF23F
         JP      LF275
-lf27e:  CALL    LF177
+GET4DE:  CALL    LF177
         JP      C,LF1B8
         EX      DE,HL
         RET     
 
 CHK$CHAR:  
-	CALL    INKEY
+        CALL    INKEY
         OR      A
         JP      NZ,MONITOR
         RET     
 
-INP:  CALL    LF14A
+INP:    CALL    RD$HEX4N
         JP      C,LF1B8
         LD      C,A
         IN      A,(C)
         CALL    PR$CRLF
         CALL    PR$HEX
         JP      MONITOR
-OUTP:   CALL    LF14A
+OUTP:   CALL    RD$HEX4N
         JP      C,LF1B8
         LD      C,A
-        CALL    LF14A
+        CALL    RD$HEX4N
         JP      C,LF1B8
         OUT     (C),A
         JP      MONITOR
@@ -431,40 +470,46 @@ OUTP:   CALL    LF14A
 ; floppy drive is 8" or 5.25".  If the floppy is 8", then
 ; the first three sectors are read from the floppy in SD mode into
 ; RAM at C000h.  Following a successful read, control is transferred
-; to C000h.
+; to 0BFFCH.
 ;
-; The hard disk boot reads the bootstrap into 8000h, and starts
-; execution at that location.
+; The opcodes at 0BFFCH-0BFFFH are to disable the PROM, and enable
+; all RAM banks:
+; 0BFFCH: LD    A,6FH
+; 0BFFEH: OUT   (MEMCTL0),A
+;
+; The hard disk boot reads the bootstrap into 8000h, copies LD A,6FH
+; over the first two bytes of the boostrap, and starts
+; execution at that 8000H.  The next two bytes of the bootstrap must
+; be: OUT   (MEMCTL0),A
 ;
 ; If no floppy or hard disks are present, this routine retries in a
 ; loop, until the user presses a key on the terminal.
-;
 BOOT:   CALL    CHK$CHAR
-        CALL    FDTYPE			; Determine Floppy type and issue RESTORE
-        CALL    HDINIT			; Initialize Hard Disks
+        CALL    FDTYPE          ; Determine Floppy type and issue RESTORE
+        CALL    HDINIT          ; Initialize Hard Disks
 
 BOOTRTY:
         CALL    CHK$CHAR
         CALL    FDRDY
-        CALL    HDCBOOT
+        CALL    HDREAD
         JR      BOOTRTY                 ; (-0bh)
 
-FDTYPE: IN      A,(15H)			; Read J7 Jumpers to determine config.
+FDTYPE: IN      A,(15H)         ; Read J7 Jumpers to determine config.
         LD      B,A
-        LD      A,18H			; 5.25" Double-Density
-        BIT     4,B			; Test J7-5
-        JR      NZ,FDRST                ; J7-5 is on, use 5.25"
-        XOR     A			; 8" Single-Density
+        LD      A,18H           ; 5.25" Double-Density
+        BIT     4,B             ; Test J7-5
+        JR      NZ,FDRST        ; J7-5 is on, use 5.25"
+        XOR     A               ; 8" Single-Density
 
 ; RESTORE command to floppy drive
-FDRST:  LD      (0EE06H),A		; Drive Unit/type to boot
-        OUT     (WAIT),A			; Store Drive Control Register
+FDRST:  LD      (0EE06H),A      ; Drive Unit/type to boot
+        OUT     (WAIT),A        ; Store Drive Control Register
         LD      A,0BH
-        OUT     (FDSTAT),A		; RESTORE command
+        OUT     (FDSTAT),A      ; RESTORE command
         NOP     
         IN      A,(WAIT)
-        IN      A,(FDSTAT)		; Read FDC Status
-        AND     80H			; Check NOT_READY bit
+        IN      A,(FDSTAT)      ; Read FDC Status
+        AND     80H             ; Check NOT_READY bit
         RET     Z
 
         XOR     A
@@ -472,39 +517,46 @@ FDRST:  LD      (0EE06H),A		; Drive Unit/type to boot
         OUT     (WAIT),A
         RET     
 
-FDRDY:  IN      A,(FDSTAT)		; Read FDC Status
+;-------------
+; Ready check
+;-------------
+FDRDY:  IN      A,(FDSTAT)      ; Read FDC Status
         RLA     
-        RET     C			; Drive not ready
+        RET     C               ; Drive not ready
 
         LD      HL,03E8H
-lf2ef:  IN      A,(FDSTAT)
-        AND     02H
-        JR      Z,LF2FB                 ; (+06h)
+IDXLOP: IN      A,(FDSTAT)
+        AND     02H             ; Index found?
+        JR      Z,IDXFND        ; no, jump
         DEC     HL
         LD      A,L
         OR      H
-        JR      NZ,LF2EF                ; (-0bh)
+        JR      NZ,IDXLOP
         RET     
 
-lf2fb:  LD      B,0AH
-lf2fd:  LD      HL,3E80H
-lf300:  IN      A,(FDSTAT)
-        AND     02H			; Check for INDEX pulse
-        JR      NZ,LF30E                ; (+08h)
+
+IDXFND: LD      B,0AH
+IDXLP1: LD      HL,3E80H
+IDXLP2: IN      A,(FDSTAT)
+        AND     02H             ; Check for INDEX pulse
+        JR      NZ,FDREAD
         DEC     HL
         LD      A,L
         OR      H
-        JR      NZ,LF300                ; (-0bh)
-        DJNZ    LF2FD                   ; (-10h)
-        RET     
+        JR      NZ,IDXLP2
+        DJNZ    IDXLP1
+        RET
 
-lf30e:  LD      A,0FFH
-        LD      (0EE01H),A
-        LD      A,01H
+;------------------
+; Floppy disk read
+;------------------
+FDREAD: LD      A,0FFH          ; indicate attempt to read
+        LD      (FDRDFG),A
+        LD      A,01H           ; set sector 1
         LD      HL,0C000H
-lf318:  LD      (0EE08H),A
+SECLP:  LD      (FDCURSC),A     ; Current FD sector
         OUT     (FDSEC),A
-        LD      A,8CH			; Read RECORD
+        LD      A,8CH           ; Read RECORD
         OUT     (FDSTAT),A
         NOP     
 READLOOP:
@@ -514,26 +566,28 @@ READLOOP:
         IN      A,(FDDATA)
         LD      (HL),A
         INC     HL
-        JR      READLOOP                   ; (-0ch)
+        JR      READLOOP                ; (-0ch)
 IODONE: IN      A,(FDSTAT)
         OR      A
         JR      NZ,LF34C                ; (+19h)
-        LD      A,(0EE08H)
+        LD      A,(FDCURSC)
         INC     A
-        CP      04H
-        JR      NZ,LF318                ; (-23h)
-        LD      HL,(0EE04H)
-        LD      (LBFFC),HL
+        CP      04H             ; Read 3 sectors.
+        JR      NZ,SECLP
+        LD      HL,(LEE04)
+        LD      (SYSBASE),HL
         LD      HL,(0F34AH)
         LD      (0BFFEH),HL
-        JP      LBFFC
-        OUT     (16H),A
+        JP      SYSBASE
+
+lf34a:  OUT     (MEMCTL0),A     ; Disable PROM
+
 lf34c:  PUSH    AF
-        LD      A,(0EE01H)
+        LD      A,(FDRDFG)
         OR      A
         JR      Z,LF360                 ; (+0dh)
 FBOOTER:
-        LD      HL,FDCERR		; FDC Error
+        LD      HL,FDCERR       ; FDC Error
         CALL    PR$MSG
         POP     AF
         CALL    PR$HEX
@@ -542,99 +596,103 @@ lf360:  POP     AF
         LD      HL,INSDSK
         CALL    PR$MSG
         LD      A,0FFH
-        LD      (0EE01H),A
+        LD      (FDRDFG),A
         JP      MONITOR
 
 ; Initialize Hard Disks
 HDINIT: XOR     A
-        OUT     (0E6H),A
+        OUT     (HDSDH),A
         LD      A,08H
-        OUT     (0E6H),A
+        OUT     (HDSDH),A
         LD      A,10H
-        OUT     (0E6H),A
+        OUT     (HDSDH),A
         LD      A,18H
-        OUT     (0E6H),A
+        OUT     (HDSDH),A
         XOR     A
-        OUT     (0E6H),A
-        OUT     (0E3H),A
-        OUT     (0E4H),A
-        OUT     (0E5H),A
+        OUT     (HDSDH),A
+        OUT     (HDSEC),A
+        OUT     (HDCYLO),A
+        OUT     (HDCYHI),A
         INC     A
-        OUT     (0E2H),A
+        OUT     (HDSCNT),A
         LD      A,70H
-        OUT     (0E7H),A
+        OUT     (HDCMD),A
         RET     
 
-; Boot Hard Disk
-HDCBOOT:
-        IN      A,(0E7H)
+;----------------
+; Hard disk read
+;----------------
+HDREAD: IN      A,(HDCMD)
         AND     50H
-        CP      50H
-        RET     NZ
+        CP      50H             ; Ready & seek complete?
+        RET     NZ              ; No, exit
 
-        IN      A,(0E7H)
-        OR      A
-        RET     M
+        IN      A,(HDCMD)
+        OR      A               ; busy?
+        RET     M               ; yes, exit
 
         XOR     A
-        OUT     (0E6H),A
-        LD      A,20H
-        OUT     (0E7H),A
+        OUT     (HDSDH),A       ; set sdh
+        LD      A,20H           ; read sector cmd
+        OUT     (HDCMD),A
 
-HDREAD: IN      A,(0E7H)		; Read sector from HDC
-        OR      A
-        JP      M,HDREAD
-        AND     01H
-        JR      NZ,HBOOTER                ; (+11h)
-        LD      HL,L8000
-        LD      BC,00E0H
+HDBZLP: IN      A,(HDCMD)       ; Read sector from HDC
+        OR      A               ; busy?
+        JP      M,HDBZLP        ; Yes, loop
+        AND     01H             ; Error?
+        JR      NZ,HBOOTER      ; Yes, jump
+
+        LD      HL,8000H        ; Read HD bootstrap to 8000H
+        LD      BC,HDDAT        ; Read 256 bytes from HDDAT (B=0, C=HDDAT port).
         INIR    
-        LD      HL,(0EE04H)
-        LD      (L8000),HL
-        JP      L8000
+        LD      HL,(LEE04)
+        LD      (8000H),HL      ; Copy LD A,06FH to 8000H
+        JP      8000H           ; Jump to hard disk bootstrap.
+
 HBOOTER:
         LD      HL,HDCERR
         CALL    PR$MSG
-        IN      A,(0E1H)
+        IN      A,(HDERG)
         CALL    PR$HEX
         JP      MONITOR
+
         JR      LF3D0                   ; (+04h)
         LD      B,H
         INC     BC
         POP     BC
         DEC     B
-lf3d0:  JP      PE,L0D00
+lf3d0:  JP      PE,0D00H
 
-SIGNON:	DEFB	CR,LF,LF,LF,'DIGITEX Monitor version 1.2.A -- 10/06/83'
-	DEFB	CR,LF,LF,'Press "H" for Help'
-	DEFB 	CR,LF,LF,'Attempting to boot...'
-	DEFB	CR,LF,'Press any key to abort boot.'
-	DEFB	CR,LF,NUL
+SIGNON: DEFB    CR,LF,LF,LF,'DIGITEX Monitor version 1.2.A -- 10/06/83'
+        DEFB    CR,LF,LF,'Press "H" for Help'
+        DEFB    CR,LF,LF,'Attempting to boot...'
+        DEFB    CR,LF,'Press any key to abort boot.'
+        DEFB    CR,LF,NULL
 
-PROMPT: DEFB    CR,LF,' >',NUL
-UNDEFD: DEFB    ' UNDEFINED', NUL
-QMARKS:	DEFB	' ????',NUL
-MWERR:  DEFB    CR,CR,LF,'MEMORY WRITE ERROR AT ',NUL
-ERRMSG:	DEFB	'ERROR',NUL
-PAUMSG: DEFB    ' PAUSE',NUL
-QMARK:  DEFB    '? ',NUL
-ABTMSG:	DEFB	' ABORTED',NUL
-SADMSG:	DEFB	'STARTING ADDRESS:',NUL
-EADMSG:	DEFB	'ENDING ADDRESS:',NUL
-FDCERR: DEFB    CR,LF,'FDC COLD BOOT ERROR CODE ',NUL
-INSDSK: DEFB    CR,LF,'INSERT DISK & PRESS B TO BOOT',NUL
-HDCERR: DEFB    CR,LF,'HDC1001 COLD BOOT ERROR CODE ',NUL
-CRLF:   	DEFB	CR,LF,NUL
-HELP$MSG:   	DEFB    CR,LF,'MONITOR COMMANDS :'
+PROMPT: DEFB    CR,LF,' >',NULL
+UNDEFD: DEFB    ' UNDEFINED', NULL
+QMARKS: DEFB    ' ????',NULL
+MWERR:  DEFB    CR,CR,LF,'MEMORY WRITE ERROR AT ',NULL
+ERRMSG: DEFB    'ERROR',NULL
+PAUMSG: DEFB    ' PAUSE',NULL
+QMARK:  DEFB    '? ',NULL
+ABTMSG: DEFB    ' ABORTED',NULL
+SADMSG: DEFB    'STARTING ADDRESS:',NULL
+EADMSG: DEFB    'ENDING ADDRESS:',NULL
+FDCERR: DEFB    CR,LF,'FDC COLD BOOT ERROR CODE ',NULL
+INSDSK: DEFB    CR,LF,'INSERT DISK & PRESS B TO BOOT',NULL
+HDCERR: DEFB    CR,LF,'HDC1001 COLD BOOT ERROR CODE ',NULL
+CRLF:   DEFB    CR,LF,NULL
+HELP$MSG:       DEFB    CR,LF,'MONITOR COMMANDS :'
         DEFB    CR,LF,0C2H,'               ',0BDH,' LOAD DISK BOOT LOADER'
-	DEFB	CR,LF,'DSSSS,QQQQ      = DUMP MEMORY IN HEX FROM S TO Q'
-	DEFB	CR,LF,'FSSSS,QQQQ,BB   = FILL MEMORY FROM S TO Q WITH B'
-	DEFB	CR,LF,'GAAAA           = GO TO ADDRESS A'
-	DEFB	CR,LF,'IPP             = INPUT FROM PORT P'
-	DEFB	CR,LF,'LAAAA           = LOAD MEMORY STARTING AT A'
-	DEFB	CR,LF,'MSSSS,QQQQ,DDDD = MOVE STARTING AT S TO Q TO ADDR. D'
-	DEFB	CR,LF,'OPP,DD          = OUTPUT DATA D TO PORT P'
-	DEFB	CR,LF,'ESC WILL TERMINATE ANY COMMAND',NUL
+        DEFB    CR,LF,'DSSSS,QQQQ      = DUMP MEMORY IN HEX FROM S TO Q'
+        DEFB    CR,LF,'FSSSS,QQQQ,BB   = FILL MEMORY FROM S TO Q WITH B'
+        DEFB    CR,LF,'GAAAA           = GO TO ADDRESS A'
+        DEFB    CR,LF,'IPP             = INPUT FROM PORT P'
+        DEFB    CR,LF,'LAAAA           = LOAD MEMORY STARTING AT A'
+        DEFB    CR,LF,'MSSSS,QQQQ,DDDD = MOVE STARTING AT S TO Q TO ADDR. D'
+        DEFB    CR,LF,'OPP,DD          = OUTPUT DATA D TO PORT P'
+        DEFB    CR,LF,'ESC WILL TERMINATE ANY COMMAND',NULL
 
 CMDTABLE:
         DEFB    'L'
@@ -663,304 +721,8 @@ CMDTABLE:
         DEFW    BOOT
         DEFB    0FFH
 
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    00H
-        DEFB    7FH
-        DEFB    01H
-        DEFB    00H
-        DEFB    04H
-        DEFB    00H
-        DEFB    07H
-        DEFB    00H
-        DEFB    0AH
-        DEFB    00H
-        DEFB    0DH
-        DEFB    00H
-        DEFB    10H
-        DEFB    00H
-        DEFB    13H
-        DEFB    00H
-        DEFB    16H
-        DEFB    00H
-        DEFB    19H
-        DEFB    00H
-        DEFB    1CH
-        DEFB    00H
-        DEFB    1FH
-        DEFB    00H
-        DEFB    22H
-        DEFB    00H
-        DEFB    25H
-        DEFB    00H
-        DEFB    28H
-        DEFB    00H
-        DEFB    2BH
-        DEFB    00H
-        DEFB    2EH
-        DEFB    00H
-        DEFB    31H
-        DEFB    00H
-        DEFB    34H
-        DEFB    00H
-        DEFB    37H
-        DEFB    00H
-        DEFB    3AH
-        DEFB    00H
-        DEFB    69H
-        DEFB    00H
-        DEFB    71H
-        DEFB    00H
-        DEFB    74H
-        DEFB    00H
-        DEFB    77H
-        DEFB    00H
-        DEFB    7DH
-        DEFB    00H
-        DEFB    80H
-        DEFB    00H
-        DEFB    83H
-        DEFB    00H
-        DEFB    87H
-        DEFB    00H
-        DEFB    97H
-        DEFB    00H
-        DEFB    9AH
-        DEFB    00H
-        DEFB    0CFH
-        DEFB    00H
-        DEFB    0DEH
-        DEFB    00H
-        DEFB    0E8H
-        DEFB    00H
-        DEFB    0F2H
-        DEFB    00H
-        DEFB    0F5H
-        DEFB    00H
-        DEFB    0FAH
-        DEFB    00H
-        DEFB    0FFH
-        DEFB    00H
-        DEFB    11H
-        DEFB    01H
-        DEFB    1EH
-        DEFB    01H
-        DEFB    25H
-        DEFB    01H
-        DEFB    29H
-        DEFB    01H
-        DEFB    2EH
-        DEFB    01H
-        DEFB    3CH
-        DEFB    01H
-        DEFB    51H
-        DEFB    01H
-        DEFB    71H
-        DEFB    01H
-        DEFB    7FH
-        DEFB    01H
-        DEFB    88H
-        DEFB    01H
-        DEFB    0A6H
-        DEFB    01H
-        DEFB    0A9H
-        DEFB    01H
-        DEFB    0ADH
-        DEFB    01H
-        DEFB    0B0H
-        DEFB    01H
-        DEFB    0B3H
-        DEFB    01H
-        DEFB    0B6H
-        DEFB    01H
-        DEFB    0B9H
-        DEFB    01H
-        DEFB    0BCH
-        DEFB    01H
-        DEFB    0C2H
-        DEFB    01H
-        DEFB    0C8H
-        DEFB    01H
-        DEFB    0CBH
-        DEFB    01H
-        DEFB    0CFH
-        DEFB    01H
-        DEFB    0D2H
-        DEFB    01H
-        DEFB    0D5H
-        DEFB    01H
-        DEFB    0D8H
-        DEFB    01H
-        DEFB    0DBH
-        DEFB    01H
-        DEFB    0E2H
-        DEFB    01H
-        DEFB    0E7H
-        DEFB    01H
-        DEFB    0ECH
-        DEFB    01H
-        DEFB    0F1H
-        DEFB    01H
-        DEFB    0F8H
-        DEFB    01H
-        DEFB    05H
-        DEFB    02H
-        DEFB    08H
-        DEFB    02H
-        DEFB    0BH
-        DEFB    02H
-        DEFB    0EH
-        DEFB    02H
-        DEFB    11H
-        DEFB    02H
-        DEFB    14H
-        DEFB    02H
-        DEFB    17H
-        DEFB    02H
-        DEFB    1BH
-        DEFB    02H
-        DEFB    1EH
-        DEFB    02H
-        DEFB    21H
-        DEFB    02H
-        DEFB    26H
-        DEFB    02H
-        DEFB    2CH
-        DEFB    02H
-        DEFB    2FH
-        DEFB    02H
-        DEFB    32H
-        DEFB    02H
-        DEFB    37H
-        DEFB    02H
-        DEFB    3AH
-        DEFB    02H
-        DEFB    3DH
-        DEFB    02H
-        DEFB    42H
-        DEFB    02H
-        DEFB    48H
-        DEFB    02H
-        DEFB    4CH
-        DEFB    02H
-        DEFB    4FH
-        DEFB    02H
-        DEFB    54H
-        DEFB    02H
-        DEFB    59H
-        DEFB    02H
-        DEFB    5EH
-        DEFB    02H
-        DEFB    61H
-        DEFB    02H
-        DEFB    64H
-        DEFB    02H
-        DEFB    67H
-        DEFB    02H
-        DEFB    6AH
-        DEFB    02H
-        DEFB    6DH
-        DEFB    02H
-        DEFB    70H
-        DEFB    02H
-        DEFB    73H
-        DEFB    02H
-        DEFB    76H
-        DEFB    02H
-        DEFB    79H
-        DEFB    02H
-        DEFB    7CH
-        DEFB    02H
-        DEFB    7FH
-        DEFB    02H
-        DEFB    82H
-        DEFB    02H
-        DEFB    87H
-        DEFB    02H
-        DEFB    8BH
-        DEFB    02H
-        DEFB    8FH
-        DEFB    02H
-        DEFB    92H
-        DEFB    02H
-        DEFB    98H
-        DEFB    02H
-        DEFB    9BH
-        DEFB    02H
-        DEFB    9EH
-        DEFB    02H
-        DEFB    0A1H
-        DEFB    02H
-        DEFB    0A4H
-        DEFB    02H
-        DEFB    0A8H
-        DEFB    02H
-        DEFB    0ABH
-        DEFB    02H
-        DEFB    0B0H
-        DEFB    02H
-        DEFB    0B3H
-        DEFB    02H
-        DEFB    0B6H
-        DEFB    02H
-        DEFB    0B9H
-        DEFB    02H
-        DEFB    0BCH
-        DEFB    02H
-        DEFB    0BFH
-        DEFB    02H
-        DEFB    0C2H
-        DEFB    02H
-        DEFB    26H
-        DEFB    03H
-        DEFB    42H
-        DEFB    03H
-        DEFB    54H
-        DEFB    03H
-        DEFB    57H
-        DEFB    03H
-        DEFB    5BH
-        DEFB    03H
-        DEFB    00H
+.dephase
+
+    ds  promsiz-($-pbase)
+
 .END
