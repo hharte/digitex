@@ -11,16 +11,18 @@ memry	equ	16h			;memory control port
 ; HDC-1001 port equates
 ;
 
-HDCBASE	EQU	0E0H			; Base of HDC1001
-HDCDATA	EQU	HDCBASE			; Data port
-WPC	EQU	HDCBASE+1		; Write precomp port
+	include	CONFIG.LIB
+
+;HDBASE	EQU	0E0H			; Base of HDC1001
+HDCDATA	EQU	HDBASE			; Data port
+WPC	EQU	HDBASE+1		; Write precomp port
 HDCERR	EQU	WPC			; Error port
-SECNT	EQU	HDCBASE+2		; Sector count
-SECNO	EQU	HDCBASE+3		; Sector number
-CYLLO	EQU	HDCBASE+4		; Cylinder low
-CYLHI	EQU	HDCBASE+5		; Cylinder high
-SDH	EQU	HDCBASE+6		; Size/Drive/Head
-COMND	EQU	HDCBASE+7		; Command register
+SECNT	EQU	HDBASE+2		; Sector count
+SECNO	EQU	HDBASE+3		; Sector number
+CYLLO	EQU	HDBASE+4		; Cylinder low
+CYLHI	EQU	HDBASE+5		; Cylinder high
+SDH	EQU	HDBASE+6		; Size/Drive/Head
+COMND	EQU	HDBASE+7		; Command register
 STATUS	EQU	COMND			; Status register
 
 ;

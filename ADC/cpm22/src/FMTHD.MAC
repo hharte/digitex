@@ -32,7 +32,8 @@ CONST	EQU	00BH			; Console status
 ; HDC-1001 REGISTER PORT ADDRESSES
 ;----------------------------------
 
-HDBASE	EQU	050H			; HDC1001 base I/O port
+	include	CONFIG.LIB
+;HDBASE	EQU	0E0H			; HDC1001 base I/O port
 
 DATA	EQU	HDBASE+0		; Data register
 ERROR	EQU	HDBASE+1		; Error register

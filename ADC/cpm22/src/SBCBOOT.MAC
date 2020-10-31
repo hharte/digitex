@@ -6,12 +6,11 @@
 ;LAST UPDATE 5/15/82
 ;
 
-false	equ	0			;logical equates
-true	equ	not false
+	include CONFIG.LIB
 
-MINI	EQU	false			;set to true for mini
-trk0dd	equ	false			;true = track 00 double density
-dsd	equ	true			;true = double sided for double density use
+;MINI	EQU	false			;set to true for mini
+;trk0dd	equ	false			;true = track 00 double density
+;dsd	equ	true			;true = double sided for double density use
 ;
 RTYN	EQU	10			; disk io retries
 SEEKRT	EQU	1			; rate 0=3ms, 1=6ms, 2=10ms, 3=20ms
@@ -103,3 +102,4 @@ dens:
 	DB	0E5H			;density flag patched by sysgen
 	endif
 	END	
+

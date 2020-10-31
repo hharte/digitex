@@ -10,6 +10,7 @@ title	CP/M 2.2 BIOS -- A.D.C. SUPER QUAD - SUPER SIX SBC -- VERSION 2.4
 ;--------------------------------
 
 	include	SUPRBIOS.LIB		; contains all macros used 
+	include CONFIG.LIB		; Global configuration
 
 ;---------------------------
 ; INITAL DRIVE AND USER NO.
@@ -107,22 +108,24 @@ fsec	equ	fbase+2			; sector register
 fdata	equ	fbase+3			; data register
 fwait	equ	014h			; wait register
 fdsn	equ	014h			; drive density-size-number register
-;------------------------------------
+
+;------------------------------------
 ; HDC-1001 CONTROLLER PORT ADDRESSES
 ;------------------------------------
 
-hbase	equ	050h			; base port address of hdc-1001
+;hdbase is set in CONFIG.LIB instead.
+;hdbase	equ	0E0h			; base port address of hdc-1001
 
-hdata	equ	hbase+0			; data register
-herror	equ	hbase+1			; error register
-hwrtpre	equ	hbase+1			; write pre-compensation register
-hseccnt	equ	hbase+2			; sector count register
-hsec	equ	hbase+3			; sector number register
-hcyllow	equ	hbase+4			; cylinder low register
-hcylhi	equ	hbase+5			; cylinder high register
-hsdh	equ	hbase+6			; size - drive - head register
-hstatus	equ	hbase+7			; status register port
-hcmd	equ	hbase+7			; command register port
+hdata	equ	hdbase+0		; data register
+herror	equ	hdbase+1		; error register
+hwrtpre	equ	hdbase+1		; write pre-compensation register
+hseccnt	equ	hdbase+2		; sector count register
+hsec	equ	hdbase+3		; sector number register
+hcyllow	equ	hdbase+4		; cylinder low register
+hcylhi	equ	hdbase+5		; cylinder high register
+hsdh	equ	hdbase+6		; size - drive - head register
+hstatus	equ	hdbase+7		; status register port
+hcmd	equ	hdbase+7		; command register port
 
 ;----------------------------
 ; FLOPPY CONTROLLER COMMANDS
@@ -2022,7 +2025,7 @@ crc2:	db	0			; crc code 2
 ;
 ;------------------------------------------------------------------------------
 
-	dskdef <f8,sa1004>
+	dskdef <f8,f8,q2020>
 
 ;-------------------------
 ; COLD BOOT INITALIZATION
@@ -2194,7 +2197,8 @@ ctcinit:
 ;-----------------------------------------------
 
 twodec:
-	ld	bc,0affh		; nxtten:
+	ld	bc,0affh		; 
+nxtten:
 	inc	c			; 
 	sub	b			; 
 	jr	nc,nxtten		; 
