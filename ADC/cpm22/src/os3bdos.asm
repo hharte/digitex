@@ -20,6 +20,7 @@
 on	equ	0ffffh
 off	equ	00000h
 test	equ	off
+adcblk 	equ 	on	; Set to on to enable ADC Blocking/Deblocking DBOS hack.
 ;
 	if	test
 	org	0dc00h
@@ -1700,7 +1701,25 @@ diskwrite:	;(may enter here from seqdiskwrite above)
 		mvi c,2 ;mark as record count incremented
 	diskwr2:
 	;A has vrecord, C=2 if new block or new record#
-	dcr c! dcr c! jnz noupdate
+	if adcblk
+; Per pp. 9 of ADC_Super_BIOS_Aug83.pdf:
+; "This is necessary because the SUPERBIOS uses a sector blocking/
+; deblocking alogrithm that uses the directory write code in C
+; to flush disk buffers after file closing.
+;
+; This also means that MOVCPM.COM has to be patched to support this.
+; The instructions to do so are in the manual referenced above.
+		nop	; ADC hack.
+		nop	; "
+		lxi h,0D400H	; Manual says 0, but CPMF.SYS has 0D400H here.
+	else
+; Original CP/M code:
+		dcr c
+		dcr c
+		jnz noupdate
+	endif
+	
+
 		push psw ;save vrecord value
 		call getmodnum ;HL=.fcb(modnum), A=fcb(modnum)
 		;reset the file write flag to mark as written fcb
@@ -2174,7 +2193,7 @@ arecord1:	ds	word	;current actual block# * blkmsk
 dptr:	ds	byte	;directory pointer 0,1,2,3
 dcnt:	ds	word	;directory counter 0,1,...,dirmax
 drec:	ds	word	;directory record 0,1,...,dirmax/4
-;
+bdpad:	ds	18	;Pad to 128-byte boundary.
 ;bios	equ	($ and 0ff00h)+100h	;next module
 bios	equ 0EA00h
 	end
