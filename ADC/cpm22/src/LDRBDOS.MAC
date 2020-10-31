@@ -541,6 +541,6 @@ nofile:	db	14,'File not found'
 errmsg:	db	14,' error: file  '
 
 boottbl:
-	ds	60,0
+	ds	1024-($-start),0
 
 	end
