@@ -1,0 +1,2255 @@
+
+title	CP/M 2.2 BIOS -- A.D.C. SUPER QUAD - SUPER SIX SBC -- VERSION 2.4
+
+	.z80
+
+;--------------------------------
+; AUTHOR  Marcus G. Calescibetta
+; DATE    March 7, 1985
+; VERSION 2.4
+;--------------------------------
+
+	include	SUPRBIOS.LIB		; contains all macros used 
+
+;---------------------------
+; INITAL DRIVE AND USER NO.
+;---------------------------
+
+dfun	equ	0			; user to come up under ( 0 - 15 )
+dfdn	equ	0			; drv to come up on ( A:=0, B:=1 ect.)
+
+;-----------------------
+; CP/M PAGE 0 ADDRESSES
+;-----------------------
+
+iobyte	equ	00003h			; iobyte addr
+cdisk	equ	00004h			; default disk and user number addr
+
+;--------------------
+; PHYSICAL DEVICE NO.
+;--------------------
+
+sioa	equ	0			; sio ch. a     is dev 0
+siob	equ	1			; sio ch. b     is dev 1
+pio	equ	2			; pio ch. a & b is dev 2
+
+;------------------------------------
+; LOGICAL TO PHYSICAL DEVICE MAPPING
+;------------------------------------
+
+lst	equ	siob shl 6		; printer  device 
+pun	equ	pio  shl 4		; auxilary device 
+rdr	equ	pio  shl 2		; auxilary device 
+con	equ	sioa shl 0		; console  device 
+
+iobval	equ	lst+pun+rdr+con		; iobyte setting
+
+;------------------------------
+; CONSOLE INTERUPT BUFFER SIZE
+;------------------------------
+
+cbufsz	equ	32			; buf siz for intr in,  power of 2
+
+;------------------
+; SIO PORT ADDRESS
+;------------------
+
+siobase	equ	0			; base port addr of sio 
+
+sioad	equ	siobase+0		; sio ch. a data
+sioac	equ	siobase+1		; sio ch. a control/status 
+siobd	equ	siobase+2		; sio ch. b data
+siobc	equ	siobase+3		; sio ch. b control/status 
+
+;------------------
+; PIO PORT ADDRESS
+;------------------
+
+piobase	equ	4			; base port addr of pio
+
+pioad	equ	piobase+0		; pio ch. a data
+pioac	equ	piobase+2		; pio ch. a control
+piobd	equ	piobase+1		; pio ch. b data
+piobc	equ	piobase+3		; pio ch. b control
+
+;-------------------
+; CTC CONTROL PORTS
+;-------------------
+
+ctc0	equ	008h			; CTC channel 0 control port
+ctc1	equ	009h			; CTC channel 1 control port
+ctc2	equ	00ah			; CTC channel 2 control port
+ctc3	equ	00bh			; CTC channel 3 control port 
+
+;--------------------------------
+; CTC TIMER CONTROL BIT SETTINGS
+;--------------------------------
+
+inter	equ	080h			; interupt mode (no interupts) 
+counter	equ	040h			; counter mode (timer mode)
+pre256	equ	020h			; prescale value 256 (prescale 16)
+clkris	equ	010h			; clk trigger rising edge (falling edg)
+clkgo	equ	008h			; clk trigger starts clock (auto start)
+tcfol	equ	004h			; time constant follows (no time const)
+reset	equ	002h			; software reset (continue operation)
+ctrlwd	equ	001h			; control word (vector)
+
+;----------------------------------
+; FLOPPY CONTROLLER PORT ADDRESSES
+;----------------------------------
+
+fbase	equ	0ch			; base port addr of wd-1793 or wd-2793
+
+fcmd	equ	fbase+0			; command register
+fstat	equ	fbase+0			; status register
+ftrk	equ	fbase+1			; track register
+fsec	equ	fbase+2			; sector register
+fdata	equ	fbase+3			; data register
+fwait	equ	014h			; wait register
+fdsn	equ	014h			; drive density-size-number register
+;------------------------------------
+; HDC-1001 CONTROLLER PORT ADDRESSES
+;------------------------------------
+
+hbase	equ	050h			; base port address of hdc-1001
+
+hdata	equ	hbase+0			; data register
+herror	equ	hbase+1			; error register
+hwrtpre	equ	hbase+1			; write pre-compensation register
+hseccnt	equ	hbase+2			; sector count register
+hsec	equ	hbase+3			; sector number register
+hcyllow	equ	hbase+4			; cylinder low register
+hcylhi	equ	hbase+5			; cylinder high register
+hsdh	equ	hbase+6			; size - drive - head register
+hstatus	equ	hbase+7			; status register port
+hcmd	equ	hbase+7			; command register port
+
+;----------------------------
+; FLOPPY CONTROLLER COMMANDS
+;----------------------------
+
+fstpr	equ	000h			; floppy step rate (0,1,2 or 3)
+
+frst	equ	008h + fstpr		; restore hds
+fsek	equ	01ch + fstpr		; seek track 
+frd	equ	084h			; read sector 
+fwrt	equ	0a4h			; write sector
+frda	equ	0c4h			; read track id
+
+;-------------------
+; HDC-1001 COMMANDS
+;-------------------
+
+cmdrst	equ	010h			; restore command
+cmdrd	equ	020h			; read sector command
+cmdwrt	equ	030h			; write sector command		
+
+;----------------------------
+; CP/M DEBLOCKING PARAMETERS 
+;----------------------------
+
+wrtuse	equ	0			; write to previously allocated block
+wrtdir	equ	1			; write to directory (must flush)
+wrtfre	equ	2			; write to newly allocated block
+rtrys	equ	5			; retry count in case of disk error
+
+;----------------------------
+; LOCATION OF BIOS IN MEMORY
+;----------------------------
+
+	.phase 0ea00h
+
+;------------------
+; BIOS JUMP VECTOR
+;------------------
+start:	jp	coldboot		; cold start 
+	jp	wboot			; warm start
+	jp	const			; console status
+	jp	conin			; console character input 
+	jp	conout			; console character output
+	jp	list			; list    character output
+	jp	punch			; punch   character output 
+	jp	reader			; reader  character output
+	jp	home			; move head to home position
+	jp	seldsk			; select disk
+	jp	settrk			; set track number
+	jp	setsec			; set sector number
+	jp	setdma			; set dma address
+	jp	read			; read disk
+	jp	write			; write disk
+	jp	listst			; return list status
+	jp	sectran			; sector translate
+
+ccp:	dw	start-1600h		; ccp  addr
+bdos:	dw	start-0dfah		; bdos addr
+
+;-----------------
+; WARM BOOT TABLE
+;-----------------
+;
+; track (dw), first sector(dw), last sector(dw)
+;
+
+btbl:	
+	dw	0,0,0			; space for four entries
+	dw	0,0,0			;
+	dw	0,0,0			;
+	dw	0,0,0			; 
+	dw	0			; extra track to exit properly
+
+;-----------------------
+; INTERRUPT VECTOR TABLE
+;-----------------------
+
+	ds	16-(($-start) mod 16)
+
+isrtbl:
+	dw	iret			; channel B transmitter buffer empty
+	dw	iret			; channel B external interrupts
+	dw	iret			; channel B receiver ready
+	dw	iret			; channel B special receive interrupt
+
+	dw	iret			; channel A transmitter buffer empty
+	dw	iret			; channel A external interrupts
+	dw	sioaisr			; channel A receiver ready
+	dw	sioaisr			; channel A special recieve interrupt
+ctcvec:
+	dw	iret			; CTC ch 0 svc
+	dw	ctc1isr			; CTC ch 1 svc
+	dw	iret			; CTC ch 2 svc
+	dw	iret			; CTC ch 3 svc
+
+;----------------------
+; INPUT SERVICE VECTOR
+;----------------------
+
+itbl:
+	dw	sioain			; device no. 0
+	dw	siobin			; device no. 1
+	dw	sioain			; device no. 2 (no in on pio, use keyb)
+	dw	0			; device no. 3
+
+;-----------------------
+; OUTPUT SERVICE VECTOR
+;-----------------------
+
+otbl:
+	dw	sioaot			; device no. 0
+	dw	siobot			; device no. 1
+	dw	pioot			; device no. 2
+	dw	0			; device no. 3
+
+;-----------------------------
+; INPUT STATUS SERVICE VECTOR
+;-----------------------------
+
+istbl:
+	dw	sioaist			; device no. 0
+	dw	siobist			; device no. 1
+	dw	sioaist			; device no. 2 (no in on pio, use keyb)
+	dw	0			; device no. 3
+
+;------------------------------
+; OUTPUT STATUS SERVICE VECTOR
+;------------------------------
+
+ostbl:
+	dw	sioaost			; device no. 0 
+	dw	siobost			; device no. 1 
+	dw	pioost			; device no. 2 
+	dw	0			; device no. 3 
+
+;----------------------------------
+; CONSOLE INPUT RE-DIRECTION SETUP
+;----------------------------------
+
+conin:
+	ld	hl,itbl			; pass input service table base addr
+	ld	a,(iobyte)		; pass dev. no. in bits 0 and 1
+	jp	jphl			; go jump to device to get input from
+
+;---------------------------------
+; CONSOLE OUTPUT REDIRECTION SETUP
+;---------------------------------
+conout:
+	ld	hl,otbl			; pass output service table base addr
+	ld	a,(iobyte)		; pass dev. no. to send output to
+	jp	jphl			; go jump to dev svc to send output to
+
+;----------------------------------------
+; CONSOLE INPUT REDIRECTION STATUS SETUP
+;----------------------------------------
+
+const:
+	ld	hl,istbl		; pass status service table base addr
+	ld	a,(iobyte)		; put table (offset/2) into a-reg
+	jp	jphl			; go figure out which status to check
+
+;--------------------------------
+; PUNCH OUTPUT REDIRECTION SETUP
+;--------------------------------
+
+punch:
+	ld	hl,otbl			; pass output table base addr to jphl
+	ld	a,(iobyte)		; get punch re-direction device no
+	srl	a			; punch dev no. is in bits 4 and 5 
+	srl	a			; shift device no to bits 0 and 1
+	srl	a			; bit 0 & 1 are dev to snd pun out to
+	srl	a			; will add (dev_no*2) to otbl 
+	jp	jphl			; result is ptr to pun out service 
+
+;--------------------------------
+; READER INPUT REDIRECTION SETUP
+;--------------------------------
+
+reader:
+	ld	hl,itbl			; pass input table base addr in hl
+	ld	a,(iobyte)		; pass phy dev no reader is maped to
+	srl	a			; reader is bits 2 and 3
+	srl	a			; shift phy dev no to bits 0 and 1
+	jp	jphl			; go figure out service addr
+
+;-------------------------------
+; LIST OUTPUT REDIRECTION SETUP
+;-------------------------------
+
+list:
+	ld	hl,otbl			; pass output service routine table adr
+	ld	a,(iobyte)		; list phy dev no is in bits 6 and 7
+	rlc	a			; rotate device no into bits 0 and 1
+	rlc	a			; rotate one more time
+	jp	jphl			; jump with phy dev no of lst dev in a
+
+;--------------------------------------
+; LIST OUTPUT REDIRECTION STATUS SETUP 
+;--------------------------------------
+
+listst:
+	ld	hl,ostbl		; get output status table address
+	ld	a,(iobyte)		; get io byte values
+	rlc	a			; rotate phy device no of lst dev
+	rlc	a			; pass lst phy dev no in bits 0 and 1
+	jp	jphl			; go get addr of service routine
+
+;------------------------------------------
+; JUMP TO CHARACTER DEVICE SERVICE ROUTINE
+;------------------------------------------
+
+jphl:
+	and	3			; mask for bits 0 and 1
+	sla	a			; multiply by 2, use as word index
+	ld	e,a			; prepare for 16-bit add 
+	ld	d,0			; zero out high byte
+	add	hl,de			; add offset to base addr
+	ld	e,(hl)			; get low byte of service addr
+	inc	hl			; point to high byte of service addr
+	ld	d,(hl)			; get high byte of service addr
+	ex	de,hl			; put service addr into hl
+	jp	(hl)			; jump to service routine
+	
+;-----------------
+; SIO CH. A INPUT
+;-----------------
+
+sioain:
+	call	sioaist			; check if character in buffer
+	jr	z,sioain		; loop until character available
+
+	di				; disable con int while modifing ptrs
+
+	ld	de,(coptr)		; get ciptr and coptr 
+	ld	d,0			; zero ciptr, prepare for dbl add 
+	ld	hl,cbuf			; get base buffer address
+	add	hl,de			; add offset to base buf addr
+
+	ld	a,e			; put coptr into a
+	inc	a			; pnt to nx char to output to cp/m
+	and	cbufsz-1		; mask so input buffer is circular
+	ld	(coptr),a		; save updated pointer
+
+	ld	a,(hl)			; return with char in a-reg
+
+	ei				; ok to re-enable interupts
+	ret
+
+;------------------
+; SIO CH. A OUTPUT
+;------------------
+
+sioaot:
+	call	sioaost			; check output status
+	and	a			; returns w. 0ff in a if ok to send
+	jr	z,sioaot		; loop until ok to send character
+	ld	a,c			; put character to send in a  
+	out	(sioad),a		; output it to sio data channel
+	ret		
+
+;------------------------
+; SIO CH. A INPUT STATUS
+;------------------------
+
+sioaist:
+	ld	hl,(coptr)		; check if any char have been input
+	ld	a,h			; put ciptr into a
+	sub	l			; subtract ciptr from coptr
+	ret	z			; if ciptr=coptr then no characters
+
+	ld	a,0ffh			; else return w. true flag in a
+	ret
+
+;-------------------------
+; SIO CH. A OUTPUT STATUS
+;-------------------------
+
+sioaost:
+	in	a,(sioac)		; read in status for sio ch. a 
+	and	4			; check if Tx Bf empty set
+	cp	4			; set zero flg if bit 2 is set
+	ld	a,0ffh			; set ok to output flag
+	ret	z			; return if ok to send
+	cpl				; Tx Bf NOT empty, return w. 0 in a-reg
+	ret
+
+;------------------------------------
+; SIO CH. A INTERUPT SERVICE ROUTINE
+;------------------------------------
+
+sioaisr:
+	ld	(ssp),sp		; save system stack pointer
+	ld	sp,istk			; set up isr stack
+	call	save			; save state of cpu registers
+
+	ld	hl,(coptr)		; put ciptr into h, coptr into l 
+	ld	a,h			; put ptr to last char input into a-reg
+	inc	a			; pnt to nx available space in buffer
+	and	cbufsz-1		; mask for wrap around
+	cp	l			; chk if in = out
+	jr	z,cibo			; if in = out then no more buf space
+
+	ld	(ciptr),a		; save updated pointer
+	ld	e,h			; put offset into buffer in e
+	ld	d,0			; zero d in preparation for dbl add
+	ld	hl,cbuf			; put base addr of buffer in hl
+	add	hl,de			; add offset to base adr
+
+	in	a,(sioad)		; read character in from sio
+	and	07fh			; mask parity bit off
+	ld	(hl),a			; store character in buffer
+	ret
+
+cibo:
+	in	a,(sioad)		; no more room in buffer, clear sio
+	ld	c,7			; load c w. ascii value of <bell>
+	call	conout			; send bell to tell user no more room
+	ret
+
+;-----------------
+; SIO CH. B INPUT
+;-----------------
+
+siobin:
+	call	siobist			; read status of sio ch. b 
+	jr	z,siobin		; loop until a char is input
+
+	in	a,(siobd)		; read data just recieved
+	and	07fh			; mask off parity and return to caller
+	ret
+
+;------------------
+; SIO CH. B OUTPUT 
+;------------------
+
+siobot:
+	call	siobost			; get output status of sio b
+	and	a			; check flag returned in a-reg by stat
+	jr	z,siobot		; loop until sio b not busy
+
+	ld	a,c			; char to send is passed in c-reg
+	out	(siobd),a		; send char to sio ch. b data
+	ret
+
+;------------------------
+; SIO CH. B INPUT STATUS 
+;------------------------
+
+siobist:
+	in	a,(siobc)		; get status from control port 
+	and	1			; check if Rx char available
+	ret	z			; return if no character available
+	ld	a,0ffh			; ret w. true flag in a (char avail.)
+	ret
+
+;-------------------------
+; SIO CH. B OUTPUT STATUS 
+;-------------------------
+
+siobost:
+	ld	a,010h			; to chk DCD, must do Rset Ext/Stat Int
+	out	(siobc),a		; send Reset External / Status Interupt
+
+	in	a,(siobc)		; now can read status
+	and	0ch			; mask for DCD and Tx Bf Empty (b3,b2)
+	cp	0ch			; now check if these bits are reset
+	ld	a,0ffh			; ok to snd flg, in case bits are reset
+	ret	z			; return if ok to send
+	cpl				; complement snd flg, NOT ok to send
+	ret
+
+;------------
+; PIO OUTPUT
+;------------
+;
+; pio ch. a is non-inverted data
+; pio ch. b is inverted status
+;
+
+pioot:
+	call	pioost			; check status of pio
+	jr	z,pioot			; loop until ok to send data
+
+	ld	a,c			; char to send passed in c, put it in a
+	out	(pioad),a		; pio ch. a is data, ch. b is status
+	ld	a,080h			; must strobe pio, so set strobe bit  
+	out	(piobd),a		; send strobe to ch. b, set low
+	xor	a			; strobe is low/high transition
+	out	(piobd),a		; now send high strobe to ch. b
+	ret
+
+;-------------------
+; PIO OUTPUT STATUS
+;-------------------
+
+pioost:
+	in	a,(piobd)		; read inverted stat of pio ch. b
+	and	1			; check if bit 0 is set (not busy)
+	ret	z			; return if not =1 (ie =0 busy)
+	ld	a,0ffh			; if here bit 0 =1, not busy
+	ret
+
+;-----------
+; WARM BOOT
+;-----------
+
+wboot:
+	ei				; make sure interupts are enabled
+	ld	sp,0100h		; set stack ptr at default dma  buf end
+
+	call	flush			; check if any good data to flush
+	call	rstlvec			; reset floppy login vector
+
+	ld	c,0			; load c-reg w. drive to boot off
+ 	call	seldsk			; sel drv A (use same drv bootbl frm) 
+
+	ld	a,h			; check if sel drv returned illegal dph
+	or	l			; or low byte w high byte
+	jp	z,bterr			; bad select if both zero
+
+	ld	e,(hl)			; put dph tran vec addr in de-reg
+	inc	hl			; inc ptr to tran vec addr
+	ld	d,(hl)			; now get high byte of tran vec addr
+	ld	(btxlt),de		; save tran vec addr
+
+	ld	hl,(ccp)		; ccp start is where to put first sec
+	ld	iy,btbl-6		; bt tbl has loc of ccp & bdos on dsk
+nxttrk:	
+	push	hl			; save reg we use, cause calls clobber
+
+	ld	de,6			; point to nxt entry in bt tbl
+	add	iy,de			; six bytes per entry (3 words)
+	ld	c,(iy)			; put track no. in bc-reg
+	ld	b,(iy+1)		; each entry is a word
+
+	ld	a,b			; check if trk is zero
+	or	c			; or high and low byte together 
+	jr	z,wbootx		; if trk = zero then done
+
+	call	settrk
+
+	ld	c,(iy+2)		; get nxt sec to rd frm bt tbl
+	ld	b,(iy+3)		; even sectors are store as words
+	dec	bc			; pre decrement it, increment later
+	ld	(nxsec),bc		; save it
+
+nxtsec:	
+	pop	bc			; pop current ccp addr in bc for setdma
+	push	bc			; save ccp current addr on stack
+	call	setdma			; set dma addr as ccp cur addr
+
+	scf				; clear carry flag, first set it to 1
+	ccf				; then complement it, now zero for sbc
+
+	ld	bc,(nxsec)		; get next sector to read
+	inc	bc			; update it, this is where we inc later
+
+	ld	l,(iy+4)		; get last sector frm bt tbl
+	ld	h,(iy+5)		; get high byte of last sec
+	sbc	hl,bc			; cmp w nxt sec to rd 
+	pop	hl			; fix stack in case done w. trk
+	jr	c,nxttrk		; if lst sec to rd = nxt sec, dne w trk
+
+	ld	(nxsec),bc		; save updated next sector
+	ld	de,128			; update ccp curr addr
+	add	hl,de			; we rd 128 byt sec at a time
+	push	hl			; save updated ccp on stack
+
+	ld	de,(btxlt)		; now do actual read of sector
+	call	sectran			; ld de w tran vec addr, bc w. sec no
+
+	ld	c,l			; translated sector returned in hl 
+	ld	b,h			; put sector no in bc for setsec
+	call	setsec			; setsec to read
+
+	call	read			; read sec, and put at ccp curr addr 
+
+	or	a			; check if read returned an error 
+	jr	nz,bterr		; if error then exit warm boot
+	jr	nxtsec			; else loop to get next sector
+
+wbootx:
+	ld	a,0c3h			; set page zero jump vectors
+	ld	(00),a			; jp instruction = 0c3h
+	ld	hl,start+3		; load hl w. warm boot address
+	ld	(01h),hl		; loc. 0 = jp wboot
+
+	ld	(05),a			; set bdos jump vector
+	ld	hl,(bdos)		; ld hl w. bdos start addr 
+	ld	(06h),hl		; loc. 5 = jp bdos
+
+	ld	a,(cdisk)		; pass current drive and user to ccp
+	ld	c,a			; ccp expects drv in c-reg
+
+	ld	hl,(ccp)		; set up for jp (hl)
+	jp	(hl)			; go to CP/M
+
+bterr:
+	ld	hl,bbmsg		; let user know whats going on
+	call	pmsg			; send msg to console
+	halt				; halt cpu so must reset system
+
+;-------------
+; SELECT DISK
+;-------------
+
+seldsk:
+	ld	a,c			; c contains logical drive no.
+	ld	(seklrv),a		; save it to see if drives changed
+	
+	ld	hl,drvmap-6		; convert logical drv to dphadr
+	ld	de,006			; size of drive map entry
+dphlp:
+	add	hl,de			; point to start of drive map
+	dec	a			; drv map addr point to dph s	
+	jp	p,dphlp			; loop until at correct drv map entry
+	ld	(smapadr),hl		; save current drv map addr for chkown
+
+	ld	a,(hl)			; check if logical drive configured
+	cp	0ffh			; if =0ff then illegal drive
+	jr	z,badsel		; return w. zero in hl
+
+	inc	hl			; point to phy drv entry in map 
+	inc	hl			; point to dph addr entry in drv map
+	ld	e,(hl)			; put dph addr into d and e
+	inc	hl			; now high byte
+	ld	d,(hl)			; save it in d
+	push	de			; save dph addr on stack for exit
+
+	call	chkshrd			; check if hard disk 
+	jr	z,movddb		; if hard then dont try to login fpy
+
+	call	logfpy			; login fpy (get dsk den, set dpb ect.)
+	jr	z,movddb		; jmp ovr bad sel if fpy now logged in
+	pop	hl			; could not login floppy, clean stack 
+
+badsel:
+	ld	hl,0			; return w. bad select value
+	ret
+
+movddb:
+	call	getddb			; get addr of dsk deblk blk in hl
+
+	ld	de,dbconst		; move dblk pars to usage area
+	ld	bc,13d			; 14 bytes of dblk pars
+	ldir				; move as block
+
+	pop	hl			; restore dph addr to hl 
+
+	ret
+
+;---------
+; SET DMA
+;---------
+
+setdma:
+	ld	(dmaadr),bc		; save dma addr here
+	ret
+
+;------
+; HOME
+;------
+
+home:
+	ld	bc,0			; fall through to settrk 
+
+;-----------
+; SET TRACK
+;-----------
+
+settrk:
+
+	ld	(sektrk),bc		; bc contains selected track no.
+	ret
+
+;--------------------
+; SECTOR TRANSLATION
+;--------------------
+
+sectran:
+	ld	a,d			; de contains sec trn vec addr
+	or	e			; chk if zero
+	jr	z,sectrnx		; if de =0 then no tran
+
+	ex	de,hl			; put tran vector address in hl
+	add	hl,bc			; add in sector no. offset
+	ld	c,(hl)			; get translated sector number
+	ld	b,0			; trn sec no range, 256 > sec no. >= 0
+sectrnx:
+	ld	l,c			; return tran or non-tran sec no. in hl
+	ld	h,b			; now high byte of sectro no.
+	ret
+
+;------------
+; SET SECTOR
+;------------
+
+setsec:
+	ld	(seksec),bc		; bc contains selected sector no.
+	ret
+
+;-------------
+; READ SECTOR
+;-------------
+
+read:
+	xor	a			; clear accumulator
+	ld	(rtcnt),a		; reset retry count
+	ld	a,1			; set operation to read
+	ld	(oper),a		; save it for when we do xfer
+
+	call	deblk			; deblock phy sec, buf adr, and blk sec
+	call	inbuf			; check if new sector is in buf
+	call	xfer			; transfer data out of buf into dma
+	
+	ld	a,(rtcnt)		; if rtcnt not zero then error
+
+	ret
+
+;--------------
+; WRITE SECTOR
+;--------------
+
+write:
+	xor	a			; set operation to write
+	ld	(oper),a		; save it for when we do xfer
+	ld	(rtcnt),a		; reset operation retry count
+
+	ld	a,c			; enter w. containing write type 
+	ld	(wrttyp),a		; save for write to directory check 
+	cp	wrtfre			; check if write to free block
+	jp	nz,useblk		; jump if write to used block
+freblk:
+	call	deblk			; deblock phy sec, buf adr, and blk sec
+	call	flush			; flush buffer of previouse contents
+	call	rsetusg			; set all block records as free
+	call	sethst			; set hst vars to deblk vars
+	call	xfer			; transfer dat out of dma into buf
+	call	update			; update usage vars to show blk used
+	jp	dirchk			; check if directory write
+useblk:
+	call	deblk			; deblock phy sec, buf adr, and blk sec
+	call	inbuf			; check if sec in buff, if not get it
+	call	xfer			; transfer data out of buf into dma
+	call	update			; update usage vars to show blk used
+dirchk:
+	ld	a,(rtcnt)		; check if error on write
+	and	a			; if err, don't set write pend flg
+	jr	nz,wrtend		; jmp over flush if err
+
+	ld	a,0ffh			; always a write pending after a write
+	ld	(wrtpnd),a		; set write pending flag
+
+	ld	a,(wrttyp)		; check if write to directory
+	cp	wrtdir			; compare with write directory var
+	call	z,flush			; if wrttyp = wrtdir then flush buf
+wrtend:
+	ld	a,(rtcnt)		; pass bdos 0 if no err, not 0 if err 
+	ret
+
+;------------------------------------
+; DEBLOCK PHY SEC, BUF ADDR, BLK SEC
+;------------------------------------
+
+deblk:
+	ld	a,(pdrv)		; get phy drv from dsk deblk parameters
+	ld	(sekprv),a		; save it as sek phy drv
+
+	ld	a,(secshf)		; convert sek sec to phy sec
+	ld	de,(seksec)		; secshf is log2 cpm sps
+	call	shfr16			; shift de-reg, a-reg times
+	ld	a,(hstspt_1)		; de now contains sec rel to cyl 
+	and	e			; mask for sec rel to platter
+	ld	(dsec),a		; save it as deblocked sector
+
+	ld	a,(hdshf)		; convert seksec to phy head
+	ld	de,(seksec)		; hdshf is log2 cpm spt
+	call	shfr16			; hd no is high bits, so no msk needed
+	ld	a,(hdoff)		; add in head off set for partioning
+	add	a,e			; cartriage drv must be part. by hds 
+	ld	(dhd),a			; save it as deblocked head no.	
+
+	ld	a,(cpmsps_1)		; convert seksec to hst buf no.
+	ld	hl,seksec		; mask out low order bits of sec no
+	and	(hl)			; since buf no <= 8, need only lsb 
+	ld	e,a			; mul buf no x128 to get rel adr in buf
+	ld	d,0			; zero out high order of multiplicitan
+
+	ld	a,7			; convert hst buf no. to hst buf adr
+	call	shfl16			; mult by 128 (shift lf 7)
+	ld	hl,hstbuf		; base addr of hst buf
+	add	hl,de			; add in offset
+	ld	(dadr),hl		; save it as deblocked buf addr
+
+	ld	a,(blkshf)		; convert seksec to blk no.
+	ld	de,(seksec)		; blkshf = log2 cpm spb, what we are 
+	call	shfr16			; doing is, bl=int(sesc/cpmspb)
+	ld	(dblk),de		; save as blk no. on this trk
+
+	ld	a,(hstspb_1)		; convert seksec to hst sec no. in blk
+	ld	de,(dsec)		; must use sec just deblocked 
+	and	e			; and deblk sec w. hst spb
+	ld	(dblsec),a		; save it as deblocked block sec 
+	
+ 	ret
+
+;----------------------------
+; CHECK IF NEW SEC IS IN BUF
+;----------------------------
+
+inbuf:
+	call	chkssiz			; check if 128 byte sectors
+	jr	nz,chkprd		; jump if phy sec siz > 128
+
+	call	flush			; no deblocking if 128 byte sectors
+	call	sethst			; set host variables equal to seek vars
+
+	call	chkoper			; check if write operation
+	ret	z			; ret if wrt, no pre-rd on 128 byte sec
+
+	call	rdhst			; read in sector if read oper
+	ret
+
+chkprd:
+	ld	a,(seklrv)		; check if new drv = old drv
+	ld	hl,hstlrv		; first check if log drives are same
+	cp	(hl)			; compare w. last accessed drv
+	jp	nz,difblk		; if drvs are dif, then so is blk
+
+	ld	de,(sektrk)		; check if new trk = old trk
+	ld	hl,(hsttrk)		; this is the old trk
+	call	cp16			; so far drv same
+	jp	nz,difblk		; if trks are dif, then so is blk
+
+	ld	a,(dhd)			; check if new head = old head
+	ld	hl,hsthd		; so far drv, trk same
+	cp	(hl)			; if dif hd, could be
+	jp	nz,ckblk		; same blk if blk size > phy trk siz
+
+	ld	a,(dsec)		; check if new sec = old sec
+	ld	hl,hstsec		; this is the old sec
+	cp	(hl)			; so far drv, trk, hd same
+	jp	nz,ckblk		; could be same blk even if dif sec
+
+	call	sethst			; everything same, set buf addr though
+	ret
+
+ckblk:
+	ld	hl,(dblk)		; check if new sec is in same blk
+	ld	de,(hstblk)		; if the new blk equal old blk
+	call	cp16			; then do not reset usage vars
+	jp	nz,difblk		; regardless fall through to prerd  
+
+samblk:
+	call	flush			; sam blk, but dif blk sec so flush old
+	ld	hl,usgblk		; check if this sec free in block
+	ld	de,(dblsec)		; look in block usage vector
+	ld	d,0			; index down to correct entry in vector
+	add	hl,de			; hl now contains addr of blk usg entry
+
+	ld	b,(hl)			; get blk usage flag
+	ld	a,(oper)		; get oper 
+	or	b			; if (sec not fre) or (oper is read)
+	jp	nz,prerd		; then need to pre-read sector
+
+nprerd:
+	call	sethst			; sector not allocated
+	ret
+difblk:	                                       			     
+	call	flush			; flush any old stuff out
+	call	setusg			; sector not in block
+prerd:
+	call	sethst			; sector in blk but alloc, or dif blk
+	call	rdhst			; read in new setor
+	ret
+
+;-------------------
+; FLUSH HOST BUFFER
+;-------------------
+
+flush:
+	ld	a,(wrtpnd)		; check if host buffer active
+	and	a			; wrtpnd =0 if inactive, =0ff if active
+	call	nz,wrthst		; physicaly flush buffer if active
+
+	xor	a			; clear write pending
+	ld	(wrtpnd),a		; host buffer now in active
+
+	ret
+
+;---------------------------------
+; SET DEBLOCKED VARS TO HOST VARS
+;---------------------------------
+
+sethst:
+	ld	hl,sekvars+2		; blk move sek & dblk vars to hst vars
+	ld	de,hstvars		; dont need seksec so sekvars+2 
+	ld	bc,16d			; this is how many to move
+	ldir				; set host variables
+	ret
+
+;--------------------------------------
+; TRANSFER DATA TO/FROM BUFFER AND DMA
+;--------------------------------------
+
+xfer:
+	ld	bc,080h			; transfer 128 bytes
+	ld	de,(dmaadr)		; load cpm addr (dma addr storage) 
+	ld	hl,(hstadr)		; load buf addr
+
+	ld	a,(oper)		; check if read or write operation
+	or	a			; oper =0 if read, =1 if write
+	jp	nz,transf		; jump if read
+
+	ex	de,hl			; read operation so switch directions
+transf:
+	ldir				; send 128 byte block
+
+	ret
+
+;--------------------------------
+; SET OR RESET BLOCK USAGE FLAGS
+;--------------------------------
+
+rsetusg:
+	ld	b,0			; set all block sectors in blk to free
+	jp	setblk			; sec in blk not allocated if =0
+setusg:
+	ld	b,0ffh			; set all block sectors in blk to used
+setblk:
+	ld	a,(hstspb_1)		; get no of host sector per block
+	ld	hl,usgblk		; get addr of blk sector usage vector
+setflg:
+	ld	(hl),b			; set or reset block usage flag
+	inc	hl			; point to next flag loc
+	dec	a			; dec count of block sectors to go
+	jp	p,setflg		; loop if more to set
+	ret		
+
+;------------------------------
+; UPDATE BLOCK USAGE VARIABLES
+;------------------------------
+
+update:
+	ld	de,(blksec)		; we have just written to a sec in blk
+	ld	d,0			; so set block sec usage flag to used
+	ld	hl,usgblk 		; first point to flag
+	add	hl,de			; de contains sector no. in block 
+	ld	a,0ffh			; 0ff means sector in block is not free
+	ld	(hl),a			; set flag 
+	ret
+
+;------------
+; WRITE HOST
+;------------
+
+wrthst:
+	call	chkhhrd			; check if host logical dsk is hard dsk
+	jr	z,hwrthst		; jmp if hard to hard wrt host else fpy
+
+fwrthst:
+	call	fsettsk			; set up cntr reg & gen housekeeping
+	call	fwrtsec			; write sector to floppy 
+	call	retrys			; check floppy cntr status for errors
+	jr	nz,fwrthst		; loop if error
+	ret
+
+hwrthst:
+	call	hsettsk			; set up hdc1001 ctrler registers
+	call	hwrtsec			; send wrt cmd and data to ctrler
+	call	retrys			; chk hdc1001 status for errors 
+	jp	nz,hwrthst		; loop if error
+	ret
+	
+;-----------
+; READ HOST
+;-----------
+
+rdhst:
+	call	chkhhrd			; chk host dsk selected is hard disk
+	jr	z,hrdhst		; set zero flag if hard disk
+
+frdhst:
+	call	fsettsk			; set controller reg & do housekeeping
+	call	frdsec			; read a sector from floppy
+	call	retrys			; chk status for errors
+	jr	nz,frdhst		; loop if error and under retry count
+	ret
+
+hrdhst:
+	call	hsettsk			; first set up controller registers
+	call	hrdsec			; transfer data
+	call	retrys			; check for errors
+	jp	nz,hrdhst		; retrys sets zero flg if no errors
+	ret
+	
+;--------------------
+; HARD DISK SET TASK
+;--------------------
+
+hsettsk:
+	ld	a,(hstprv)		; get physical drive no.
+	sla	a			; rotate phy drive to correct position
+	sla	a			; drive is expected in bits 3 and 4
+	sla	a			; last shift for drive
+	ld	hl,hstsdh		; get sdh sect size setting
+	or	(hl)			; or it in w rotated phy drive no
+	ld	hl,hsthd		; get host head no
+	or	(hl)			; or head no in w pdno and secsiz
+	out	(hsdh),a		; send it siz drv hd register
+
+	ld	bc,(hsttrk)		; host track is really host cylinder
+	ld	a,b			; move msb to a-reg for out inst
+	out	(hcylhi),a		; send high byte to cylhi reg
+	ld	a,c			; move lsb  to a-reg
+	out	(hcyllow),a		; send to cyl low
+
+	ld	a,(hstsec)		; get host sector no
+	out	(hsec),a		; send to sector register
+
+	ld	a,0ffh
+	out	(hwrtpre),a
+
+	ret
+
+;----------------------
+; FLOPPY DISK SET TASK
+;----------------------
+
+fsettsk:
+	ld	bc,(hsthd)		; head no. value to work with
+	sla	c			; shift head no. over to side select
+	sla	c			; side select is bit 2
+	ld	a,(hstsdh)		; update drive no. and head no. reg.
+	res	2,a			; reset no. of sides on drive (0-1)
+	or	c			; or side sel w. den, siz, and dno 
+	out	(fdsn),a		; send it to floppy controller reg
+
+	ld	b,0			; use b-reg as seek needed flag
+	bit	4,a			; test if 5 inch
+	jr	z,fsettrk		; skip motor on time out test if 8"
+
+	ld	b,0ffh
+	and	3
+	ld	hl,modrv
+	cp	(hl)
+	jr	nz,fsettrk
+	xor	a			; 
+	ld	hl,moto			; 
+	cp	(hl)			; 
+	jr	z,fsettrk		; 
+	ld	b,0			; motor on has not timed out
+fsettrk:
+	ld	hl,trkvec		; make sure floppy trk reg. is current
+	ld	de,(hstlrv)		; use logical drv as index to trkvec
+	ld	d,0			; set up for dbl add
+	add	hl,de			; add offset to base addr
+	ld	a,(hl)			; get trk no. head positioned over
+	out	(ftrk),a		; tell controller where it is
+ftrkck:
+	ld	de,hsttrk		; addr of track to seek
+	ex	de,hl			; save current track position addr
+	cp	(hl)			; compare trk to sek w curr hd position
+	ld	a,(hl)			; get track to seek
+	ex	de,hl			; hl =trkvec [hstlrv], de =hsttrk
+	ld	(hl),a			; save new track in track vector
+	jr	z,fdrvck		; if same trks, no seek needed
+	ld	b,0ffh			; set seek necessary flag
+fdrvck:
+	ld	a,(hstlrv)		; if diff drv, do sek to tst rdy  
+	ld	hl,lastdrv		; because of motor on w. drive select 
+	cp	(hl)			; check if this drv = last drv
+	ld	(hl),a			; update last drive used variable
+	jr	z,fsekch		; if same drv, no seek needed here
+	ld	b,0ffh			; set seek flag
+fsekch:
+	ld	a,b			; check if seek flag set above
+	and	a			; do sek if drv or trk diff
+	jr	z,fsetsec		; jump over seek call if b =0
+fcseek:
+	ex	de,hl			; put hstrk addr back in hl
+	ld	a,(hl)			; pass trk to seek in a-reg
+	call	fseek			; go seek the track
+fsetsec:
+	ld	a,(hstsec)		; now set sector no. reg.
+	ld	bc,(hstsdh)		; check density of dsk
+	bit	3,c			; density is bit 3
+	jr	z,fsndsec		; jmp ovr if single density
+	inc	a			; dbl den, so chg sec no frm 0-7 to 1-8
+fsndsec:
+	out	(fsec),a		; send it to fpy controller sec reg
+	ret
+
+;------------------------
+; HARD DISK WRITE SECTOR
+;------------------------
+
+hwrtsec:
+	ld	a,cmdwrt		; load a-reg w. cmd to wrt sec
+	out	(hcmd),a		; send wrt cmd to hdc-1001
+	call	snddta			; send data to cmd reg
+	call	polbsy			; wait until contrller done w. wrt
+	ret
+
+;-----------------------
+; HARD DISK READ SECTOR
+;-----------------------
+
+hrdsec:
+	ld	a,cmdrd			; load a with command to read sector
+	out	(hcmd),a		; send read command to command reg
+	call	polbsy			; wait until not busy
+	call	rxdta			; transfer data from cnt buf to hst buf
+	ret
+
+;-----------
+; SEND DATA    
+;-----------
+
+snddta: 
+	ld	a,(hstsiz)		; this is how many bytes
+	ld	b,a			; set up for otir
+	ld	c,hdata			; this is where the data comes fr
+	ld	hl,hstbuf		; this is where the data goes
+	otir				; block move data in c to (hl)
+	
+	ld	a,(hstsiz+1)		; check if moving 512 bytes
+	and	2			; msb =2 if 512,set flag if not zero
+	jp	z,sndout		; if zero then move another 256 bytes
+	otir				; b is already 0, hl and c are set
+sndout:
+	ret
+
+;--------------
+; RECIEVE DATA
+;--------------
+
+rxdta:
+	ld	a,(hstsiz)		; this is how many bytes to move
+	ld	b,a			; set up for inir
+	ld	c,hdata			; this is where the data comes from
+	ld	hl,hstbuf		; this is where the data goes
+	inir				; block move data into hst buf 
+
+	ld	a,(hstsiz+1)		; check if moving 512 bytes
+	and	2			; msb would be 2 if 512 bytes
+	jp	z,rxout			; jump over if moveing 128 or 256 only 
+	inir				; b should be zero, hl and c set also
+rxout:
+	ret
+
+;-----------
+; POLL BUSY
+;-----------
+
+polbsy:
+	in	a,(hstatus)		; read status port
+	and	a			; set flags
+	jp	m,polbsy		; loop if busy bit set
+	and	1			; mask for error bit
+	ret
+
+;---------------------
+; SET RETRY CONDITION
+;---------------------
+
+retrys:
+	call	chkhhrd
+	jr	z,hretry
+
+fretry:
+	in	a,(fstat)
+	and	a
+	jr	z,rtout
+	jr	rterr
+
+hretry:
+	in	a,(hstatus)		; read status register
+	and	1			; mask for error bit
+	jr	z,rtout			; jump to exit rtry
+
+rterr:
+	ld	a,(rtcnt)		; get no. of retrys so far
+	inc	a			; increment retry count
+	ld	(rtcnt),a		; save it for next time
+	cp	rtrys			; set not z flg, unless rtcnt = rtrys
+	ret	nz			; return w. flag set or reset
+
+	xor	a			; clear write pending flag 
+	ld	(wrtpnd),a		; don't try and flush buffer if wrt err
+
+	ld	bc,0ffffh
+	ld	(hsttrk),bc
+	ret
+
+rtout:
+	xor	a			; clear zero flag
+	ld	(rtcnt),a		; clear retry cnt in case had to retry
+
+	ret				; return w. no errors
+
+;----------------------------------
+; CHECK IF SEEK DRIVE IS HARD DISK
+;----------------------------------
+
+chkshrd:
+	ld	hl,(smapadr)		; load hl w. seek drive's map addr
+	ld	a,(hl)			; first entry is drive type
+	and	a			; hard disk =0, ret w. z-flg set if hrd
+	ret
+
+;----------------------------------
+; CHECK IF HOST DRIVE IS HARD DISK
+;----------------------------------
+
+chkhhrd:
+	ld	hl,(hmapadr)		; load hl w. hst drive's map addr
+	ld	a,(hl)			; fetch drive type byte
+	and	a			; set z-flag if hard disk
+	ret
+
+;----------------------------
+; CHECK PHYSICAL SECTOR SIZE
+;----------------------------
+;
+; ret w. z-flg set if 128 byte sectors
+;
+
+chkssiz:
+	call	getddb			; get disk deblocking block address
+	ld	a,(hl)			; first entry is phy sec siz
+	cp	128			; check if 128 byte sectors 
+	ret
+
+;----------------------
+; CHECK DISK OPERATION
+;----------------------
+;
+; ret w. z-flg set if write oper
+;
+
+chkoper:
+	ld	a,(oper)
+	bit	0,a
+	ret
+
+;--------------------
+; LOGIN FLOPPY DRIVE
+;--------------------
+
+logfpy:
+	ld	hl,logvec		; load hl w. login vec base addr
+	ld	de,(seklrv)		; fetch logical drv no.
+	ld	d,0			; zero out high byt to prep for dbl add
+	add	hl,de			; add in offset to login vector
+
+	ld	a,(hl)			; get log vec entry for logical drv
+	ld	(sdhdsn),a		; put in wrking var in case alrdy loged
+	inc	a			; logvec [ldrv] =0ff if not logged in
+
+	push	hl			; save login vector addr
+	jr	nz,logedin		; jmp ovr if already logged in
+flogin:
+	call	getds			; get fpy drv siz (8-5) & pdrv # (0-3)
+	call	frestore		; restore fpy drv hds
+	jr	nz,logerr		; ret if drv not rdy for select error
+	
+	call	getden			; get dsk density (sgl-dbl)
+	call	getsd			; get number of sides on dsk (0-1)
+	call	setdpb			; set dpb addr in dph to ind. den & sd
+	call	settran			; set sec trn vec adr in dph if sgl den
+
+logedin:
+	call	setddb			; set ddb addr in drv map
+
+	pop	hl			; restore logvec addr
+	ld	a,(sdhdsn)		; put new dsn reg setting in a-reg
+	ld	(hl),a			; save it as a logvec entry
+	xor	a
+	ret	
+logerr:
+	pop	hl			; clean stack and return w. nz set  
+	ret
+
+;-------------------------------------------
+; GET DRV SIZE AND PHY DRV NO. FROM DRV MAP
+;-------------------------------------------
+
+getds:
+	ld	hl,(smapadr)		; point to drvtyp in dmap
+	ld	a,(hl)			; put drive type in a-reg
+	cp	2			; if =2 then 5"- 96 tpi fpy drv
+	ld	b,040h			; b-reg contains dsn setting (motor on)
+	jr	z,dsiz596		; jmp to 96 tpi set-up
+	jr	c,dsiz548		; if =1 then 5" - 48 tpi fpy drv
+dsiz8:
+	jr	getpdrv			; if =3 then 8" fpy drv
+dsiz596:
+	set	5,b			; set bit 5 to indicate 96 tpi
+dsiz548:
+	set	4,b			; set bit 4 to indicate 5" fpy
+	set	6,b			; set bit 6 to turn on 5" motor
+getpdrv:
+	inc	hl			; phy drv no. is second entry in dmap
+	ld	a,(hl)			; put phy drv no. in a-reg
+	or	b			; or in drive size bit setting
+	ld	(sdhdsn),a		; save it in den - dsiz - dno	 
+	out	(fdsn),a		; set floppy den,dsiz,dno in controller
+
+	ret
+
+;------------------
+; GET DISK DENSITY
+;------------------
+
+getden:
+	ld	a,1			; do sek to trk 1, sgl den 
+	call	settkv
+	call	fseek			; do seek to trk 1
+	ret	z			; return if succesful (dsk is sgl den)
+dbldens:
+	ld	hl,sdhdsn		; else assume dbl den (saves time)
+	set	3,(hl)			; set double density bit setting
+	ret
+
+;---------------------
+; GET NUMBER OF SIDES
+;---------------------
+
+getsd:
+	ld	a,(sdhdsn)		; get dsn reg setting as calc so far
+	bit	3,a			; test if single density
+	ret	z			; if bit 3 =0, then sgl den 
+
+	set	2,a			; set side select bit
+	out	(fdsn),a		; send it to the floppy controller
+
+	ld	a,1			; do seek, trk 1, side 1  
+	call	settkv
+	call	fseekntst		; sek w.out rdy tst,(never rdy if 1 sd)
+	ret	nz			; jump ovr if error on sek
+
+	call	frdadr			; must rd adr to get side # 
+	ret	nz			; sgl hd drvs rd hd0 when hd1 selected
+
+	ld	a,(sideno)		; get side # from track id buffer 
+	and	a			; if side # =0 when hd1 selected then
+	ret	z			; ret if single headed drive
+
+	ld	hl,sdhdsn		; sek to trk 1, side 1 OK 
+	set	2,(hl)
+	ret
+
+;----------------
+; SET DPB IN DPH
+;----------------
+
+setdpb:
+	call	getdph			; get dph adr of sekldrv in hl
+	ld	de,0ah			; pnt to dpb entry of dph
+	add	hl,de			; dbp addr in dph is 10th entry
+	push	hl			; save addr of dpb address on stk
+tstsiz:	
+	ld	a,(sdhdsn)		; fetch dsn register setting
+
+	ld	hl,fdpb8		; ld hl w. dpb base for 8" floppy
+	bit	4,a			; check drv siz bit
+	jr	z,tstden		; jump if 8" drv
+
+	ld	hl,fdpb548		; ld hl w. dpb base for 5"-48 tpi fpy
+	bit	5,a			; check 96 tpi bit (** not standard **)
+	jr	z,tstden		; jump if 48 tpi drive
+
+	ld	hl,fdpb596		; ld hl w. dpb base for 5"-96 tpi fpy 
+tstden:
+	bit	3,a			; test density bit of dsn
+	jr	z,movdpb		; sgl den dpb = dpb base 
+setdd:
+	ld	de,15d			; double den, sgl side is next dpb
+	add	hl,de			; index down to next ddb
+tstsid:
+	bit	2,a			; test if double sided
+	jr	z,movdpb		; hl is pointing to dbl den, sgl sd 
+setds:
+	add	hl,de			; dbl den, dbl side is next dpb 
+movdpb:
+	pop	de			; this is where dpb addr goes in dph 
+	ex	de,hl			; de =dpb addr, hl =loc in dph of dpb
+	ld	(hl),e			; save low byte of addr in dph
+	inc	hl			; inc pointer to high byte of addr
+	ld	(hl),d			; save high byte of addr in dph
+	ret
+
+;---------------------------------------
+; SET TRANSLATION VECTOR ADDRESS IN DPH
+;---------------------------------------
+
+settran:
+	call	getdph			; return w dph addr in hl-reg
+
+	ld	a,(sdhdsn)		; get dsn setting
+	bit	3,a			; chk denisty bit
+	ld	de,0			; initalize de-reg w. tran vec addr 
+	jr	nz,sett			; jump if double density, (no trn vec)
+
+	ld	de,tran8		; initalize tran vec addr for 8" tran
+	bit	4,a			; chk drive size bit, =0 for 8", =1 5"
+	jr	z,sett			; jump if 8" drive
+
+	ld	de,tran548		; init tran vec addr for 5-48tpi sglden
+	bit	5,a			; check bit 5 for 96 tpi drive
+	jr	z,sett			; jump if 48 tpi drive
+
+	ld	de,tran596		; de gets 5"-96 tpi sgl den tran vec
+sett:
+	ld	(hl),e			; save tran vec addr as #1 entry in dph
+	inc	hl			; vec addr is a word
+	ld	(hl),d			; now store high byte
+	ret
+
+;----------------------
+; SET DDB IN DRIVE MAP
+;----------------------
+
+setddb:
+	ld	a,(sdhdsn)		; need this to fig what kind of dsk 
+
+	ld	hl,fddb8		; init hl for 8" sgl sid, sgl den 
+	bit	4,a			; check bit 4 for siz, 8"=0, 5"=1
+	jr	z,setddd		; jump to density chk if 8" drv 
+
+	ld	hl,fddb548		; init hl w 5"-48 tpi sgl sid, den
+	bit	5,a			; check bit 5 for tpi, 0=48tpi, 1=96tpi
+	jr	z,setddd		; jump to chk den if 48 tpi
+
+	ld	hl,fddb596		; set hl w. 5"96tpi ddb addr 
+setddd:
+	bit	3,a			; chk bit 3 for density, 0=sgl 1=dbl  
+	jr	z,mvddb			; jmp if sgl, hl alrdy has addr
+	ld	de,13			; point to next ddb, (sgl sid, dbl den)
+	add	hl,de			; add in offset to next ddb
+
+	bit	2,a			; chk # sides, 0 =1 side, 1 =2 side
+	jr	z,mvddb			; jump ovr if sgl sided 
+	add	hl,de			; add in offset again for next ddb
+mvddb:	
+	push	hl			; save ddp addr
+	ld	hl,(smapadr)		; destination of ddb addr is in dmap
+	ld	de,4			; fourth entry of logical drv in dmap
+	add	hl,de			; hl now has dmap addr destination
+	pop	de			; restore ddb addr into de-reg
+
+	ld	(hl),e			; hl-reg now has dmap ddb-entry addr
+	inc	hl			; pnt to where high byte goes
+	ld	(hl),d			; finish storing ddp addr in dmap
+
+	ld	hl,2			; offset into ddb
+	add	hl,de			; add in base address of ddb
+	ld	a,(sdhdsn)		; store sdhdsn in pdrv of ddb
+	ld	(hl),a			; for when do blk move fm. ddb -> ddcon
+	ret
+		
+;----------------------
+; RESTORE FLOPPY HEADS
+;----------------------
+
+frestore:
+	ld	a,(sdhdsn)		; get physical drive to do restore on
+	out	(fdsn),a		; send it to floppy controller
+
+	call	tstrdy			; test it drive is ready 
+	ret	nz			; return if user abort
+
+;	di				; disable console interupts
+	ld	a,frst			; load floppy restore at proper stp rte
+	out	(fcmd),a		; send restore command
+	in	a,(fwait)		; wait until command finished executing
+;	ei
+
+	xor	a			; set track vec to indicate at trk0
+	call	settkv
+	ret
+
+;---------------------
+; SEEK TRACK IN A-REG
+;---------------------
+
+fseek:
+	ld	b,a			; track to seek passed in a-reg 
+	call	tstrdy			; wait for drive to become ready
+	ret	nz			; return w nz-flay set if user abort
+	ld	a,b			; move trk no bk to a, (tstrdy uses a)
+
+fseekntst:
+;	di				; disable console interupts for disk io
+	out	(fdata),a		; load trk to sek into data register
+	ld	a,fsek			; load a-reg w seek cmd
+	out	(fcmd),a		; tell controller to seek the track
+	in	a,(fwait)		; wait until done with seek
+
+	call	delay			; must delay 28 us before reading stat
+	in	a,(fstat)		; read floppy staus register
+	and	018h			; check for crc and/or seek error
+;	ei				; return w. nz set if error
+
+	ret
+
+;--------------------------
+; WRITE A SECTOR TO FLOPPY
+;--------------------------
+
+fwrtsec:
+	in	a,(fstat)		; first check if write protected
+	bit	6,a			; if bit 6 of stat =1, then protected
+	jr	nz,wrtpro		; tell user if protected
+
+	ld	c,fdata			; destination port
+	ld	hl,hstbuf		; source starting address	
+
+	di				; dont want to be intr or will lose dta
+	ld	a,fwrt			; start write by sending command
+	out	(fcmd),a		; tell ctrler to wrt sec
+fwrtlp:
+	in	a,(fwait)		; check if in floppy interupt
+	or	a			; interupt is bit 7 of fwait, 0=active
+	jp	p,fwrtout		; if zero then no more data   1=nactive
+	outi				; else send dta, inc buf addr
+	jr	fwrtlp			; loop until done
+fwrtout:
+	call	delay			; mak sure wait 28 us before stat rd
+	in	a,(fstat)		; read status for errors
+	and	a			; set nz flg if no errors
+	ei				; enable console interupts
+
+	ret
+
+wrtpro:
+	ld	de,wprtmsg		; pass write prot msg in de to dskerr
+	call	dskerr			; call rout to prn msg and wait for cio
+	jr	z,fwrtsec		; try again if user didnt type ctrl-c
+	ret				; else return w nz flg set
+
+;---------------------------
+; READ A SECTOR FROM FLOPPY 
+;---------------------------
+
+frdsec:
+	ld	c,fdata			; destination port
+	ld	hl,hstbuf		; source starting address	
+
+	di				; disable console interupts
+	ld	a,frd			; start read by sending command
+	out	(fcmd),a		; tell ctrler to read sector
+frdlp:
+	in	a,(fwait)		; wait until ctrler rdy to snd dta
+	or	a			; check if interupt active
+	jp	p,frdout		; if bit 7 =0, then inter active
+	ini				; else rd dta, increment buff addr
+	jr	frdlp			; loop until interupt =0
+
+frdout:
+	call	delay			; mak sure wait 28 us before rding stat
+	in	a,(fstat)		; check for any errors
+	and	a			; set nz-flag if errors  
+	ei				; enable cnsole interupts
+frdsecx:
+	ret
+
+;----------------------
+; READ FLOPPY TRACK ID
+;----------------------
+
+frdadr:
+	ld	c,fdata			; data port to get data from
+	ld	hl,trkid		; data buffer to put data
+
+	di				; dont want an interupt and lose data
+	ld	a,frda			; floppy read address command
+	out	(fcmd),a		; send command to controller
+frdalp:
+	in	a,(fwait)		; check if done with read
+	or	a			; bit 7 is set if done, fpy ctr intr
+	jp	p,frdax			; exit loop if done
+	ini				; read data into buffer 
+	jr	frdalp			; loop until done
+frdax:
+	call	delay
+	in	a,(fstat)		; get status and check for errors
+	and	018h			; check if seek or crc error
+	ei				; we can enable interupts now
+
+	ret
+
+;-------------------------------
+; TEST IF FLOPPY DRIVE IS READY
+;-------------------------------
+
+tstrdy:
+	ld	a,0d0h			; reset floppy controller 
+	out	(fcmd),a		; set status reg to current state
+	call	delay			; must delay before reading status
+
+	ld	a,(sdhdsn)		; test if 8 inch drive
+	bit	4,a			; bit 4 =0 if 8", bit 4 =1 if 5"
+	ld	de,0ffffh		; set up time out counter
+	jr	z,tready		; skip index pulse tests if 8 in. drv
+tstmo:
+	and	3			; mask for physical drive no
+	ld	c,a			; save physical drive in c
+	xor	a			; set a to motor off time out
+	ld	hl,moto			; get motor on off counter
+	cp	(hl)			; check if motor was turned off now
+	ld	a,240			; access to fpy port starts motor again
+	ld	(hl),a			; reset motor counter 
+	ld	a,c			; put physical drive in a for save
+	jr	z,drvto			; if motor counter 0, then motor off
+
+	ld	hl,modrv		; get drive that was last turned on
+	cp	(hl)			; check if accessing same drive
+	ret	z			; exit w. zero flag set for no errors
+drvto:
+	ld	(modrv),a
+	ld	hl,tstnidx		; test for no index pulse if 5 in. drv
+tstnidx:
+	in	a,(fstat)		; check no idx to make sure dsk in drv
+	bit	1,a			; bit 1 =1 if index detected
+	jr	nz,decde		; decrement counter if index found
+
+	ld	hl,tstidx		; test for index pulse if 5 in. drv
+tstidx:
+	in	a,(fstat)		; check for an index pulse 
+	bit	1,a			; bit 1 on status is =0 if no index
+	jr	z,decde			; dec time out counter if no index yet
+
+tready:
+	ld	hl,tstrdx		; test for drive ready 8-5 in. drv
+tstrdx:
+	in	a,(fstat)		; get floppy status
+	bit	7,a			; test not ready bit in status
+	ret	z			; return if not ready bit =0 
+
+decde:
+	call	delay			; delay even move before decrement 
+	dec	de			; decrement counter in de-reg
+	ld	a,d			; check if counter is zero
+	or	e			; or high - low byte together
+	jr	z,notready		; jump if time out error
+	jp	(hl)			; jump to tstnidx, tstidx or tstrdx
+	
+notready:
+	ld	de,nrdymsg		; pass disk err actual error msg
+	call	dskerr			; display msg and drv on console
+	jr	z,tstrdy		; retry if user didn't type ctrl-c
+	ret	
+
+;-------------------
+; FLOPPY DISK ERROR
+;-------------------
+
+dskerr:
+	ld	hl,bioerr		; point to general bios error message
+	call	pmsg			; display message on console
+
+	ld	a,(seklrv)		; display most recently sel drive
+	add	a,041h			; adjust to ascii
+	call	pchar			; disp drv (won't be right if flushing
+					; buf fm dif drv)
+
+	ex	de,hl			; exact error msg addr passed in de
+	call	pmsg			; display this msg on console
+
+	push	bc			; possible call sequence, sek->rdy->err
+	call	conin			; wait for user to type a character
+	pop	bc			; restore track to seek, if err fm seek
+
+	cp	003h			; check if ctrl-c typed
+	jr	z,diskerr		; jmp ovr retry if ctrl-c
+
+	xor	a			; set z-flag
+	ld	a,0d0h			; reset floppy controler
+	out	(fcmd),a		; return to retry command
+	ret
+
+diskerr:
+	and	0ffh			; if here, ctrl-c entered  
+	ld	a,rtrys-1		; set nz-flag
+	ld	(rtcnt),a		; don't do any retrys
+
+	ret
+
+;--------------------------
+; PRINT MESSAGE ON CONSOLE
+;--------------------------
+
+pmsg:
+	ld	a,(hl)			; enter with hl pointing to msg
+	inc	hl			; inc msg pointer
+	cp	'$'			; dollar sign is msg ending
+	call	nz,pchar		; pass char to print in a
+	jr	nz,pmsg			; loop until $ found 
+	ret
+
+;----------------------------
+; PRINT CHARACTER ON CONSOLE
+;----------------------------
+
+pchar:
+	push	hl			; save basic state of cpu
+	push	de			; error trap needs to save registers
+	push	bc			; console output clobbers all registers
+	push	af			; need to save msg ptr in hl
+
+	ld	c,a			; put char to print in c-reg
+	call	conout			; call console output routine
+
+	pop	af			; now restore registers 
+	pop	bc			; to original state
+	pop	de			; return to pmsg probably
+	pop	hl			; this is the msg pointer
+	ret
+
+;--------------------
+; RESET LOGIN VECTOR
+;--------------------
+
+rstlvec:
+	ld	hl,logvec		; set hl to logvec base addr
+	ld	b,16			; set b-reg to # entrys in logvec
+lveclp:
+	ld	(hl),0ffh		; reset logvec entry
+	inc	hl			; increment entry no.
+	djnz	lveclp
+	ret
+
+;---------------------
+; UPDATE TRACK VECTOR
+;---------------------
+
+settkv:
+	ld	hl,trkvec		; load hl with track vector base addr
+	ld	de,(seklrv)		; get logical drive to seek
+	ld	d,0			; zero high byte for 16-bit add 
+	add	hl,de			; add in ldrv offset to trkvec
+	ld	(hl),a			; store track no. of head position 
+	ret
+
+;--------------------------------
+; GET DPH ADDRESS FROM DRIVE MAP
+;--------------------------------
+
+getdph:
+	ld	hl,(smapadr)		; get logical drive base addr in dmap
+	inc	hl			; inc past drive type entry
+	inc	hl			; inc past phyical drive no. entry 
+	ld	e,(hl)			; put low byte of dph addr in e
+	inc	hl			; inc to high byte 
+	ld	d,(hl)			; put high byte of dph addr in d
+	ex	de,hl			; return w dph addr in hl
+
+	ret
+
+;--------------------------------
+; GET DDB ADDRESS FROM DRIVE MAP
+;--------------------------------
+
+getddb:
+	ld	hl,(smapadr)		; logical drive base addr in in dmap
+	ld	de,4			; ddb addr for ldrv is 4 bytes down
+	add	hl,de			; add in offset
+	ld	e,(hl)			; fetch low byte of ddb addr
+	inc	hl			; inc pointer
+	ld	d,(hl)			; fetch high byte of ddb addr 
+	ex	de,hl			; return w ddb addr in hl
+	ret
+
+;-------------------------------
+; DELAY 28u SECONDS AT 6 mhz
+;------------------------------
+
+delay:
+	ld	a,3			; initialize loop counter
+delaylp:
+	ex	(sp),hl			; 19 cycles
+	ex	(sp),hl			; 19 cycles
+	dec	a			;  4 cycles
+	jr	nz,delaylp		; 10 cycles = 52 cyc = 8.7 @ 6 mhz
+	ret	
+
+;----------------
+; SHIFT RIGHT 16
+;----------------
+
+shfr16:
+	and	a			; shift de reg right a-reg times
+shfrlp:
+	ret	z
+	srl	d                	; shift msb first, bit 0 into carry
+	rr	e			; rotate carry into bit 7 lsb
+	dec	a			; decrement shift counter
+	jr	shfrlp			; loop util finished
+
+;---------------
+; SHIFT LEFT 16
+;---------------
+
+shfl16:
+	and	a			; shift de-reg left a-reg times
+shfllp:
+	ret	z
+	sla	e			; shf lsb first, c = bit 7, bit 0 = 0
+	rl	d			; shf msb, bit 0 = carry
+	dec	a			; decrement shift counter
+	jr	shfllp			; loop until a-reg eq zero
+
+;------------------------------
+; COMPARE 16-BIT DE AND HL REG
+;------------------------------
+
+cp16:
+	ld	a,d			; compare d-reg w. h-reg 
+	cp	h			; z-flg set if same, c-flg if hl > de
+	ret	nz			; return if not equal
+
+	ld	a,e			; compare e-reg w. l-reg
+	cp	l			; z-flg set if same, c-flg if hl > de
+	ret
+
+;----------------------------
+; SAVE - RESTORE SVC UTILITY
+;----------------------------
+
+save:
+	ex	(sp),hl
+	push	de
+	push	bc
+	push	af
+	call	go
+restore:
+	pop	af
+	pop	bc
+	pop	de
+	pop	hl
+	ld	sp,(ssp)
+iret:
+	ei
+	reti
+go:
+	jp	(hl)
+					; ie. lower 3-bits =0
+;---------
+; CTC ISR
+;---------
+
+ctc1isr:
+	ld	(ssp),sp		; save system stack pointer
+	ld	sp,istk			; use interupt stack while in isvc
+	call	save			; save cpu state
+decmo:
+	xor	a
+	ld	hl,moto
+	cp	(hl)
+	jr	z,inctic
+	dec	(hl)	
+inctic:
+	ld	hl,ticcnt		; tic counter counts 1/60 sec
+	inc	(hl)			; increment tic counter
+	ld	a,(hl)			; fetch ticcnt for compare 
+	cp	60			; check if counted 60 tics yet
+	ret	nz			; return to restore cpu state
+	ld	(hl),0			; zero tic counter
+incsec:
+	ld	hl,sec			; service second counter in scb
+	inc	(hl)			; increment second counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @sec is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd
+	cp	060h			; check if one minute elasped
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero second count
+incmin:
+	ld	hl,min			; service minute counter in scb
+	inc	(hl)			; increment minute counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @min is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd 
+	cp	060h			; check if one hour elasped
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero minute count
+inchr:
+	ld	hl,hour			; service hour counter in scb
+	inc	(hl)			; increment hour counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @hour is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd
+	cp	024h			; check if next day
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero hour count
+incday:
+	ld	hl,date			; service day counter
+	inc	(hl)			; increment day counter
+	ret
+	
+;------------------------------------------------
+; DATA STORAGE
+;------------------------------------------------
+
+bbmsg:	 db	0dh,0ah,'Warm Boot Error - Reset System$'
+
+bioerr:  db	0dh,0ah,'Bios Err on $'
+
+nrdymsg: db	': Drive Not Ready$'
+wprtmsg: db	': Write Protected Disk$'
+
+moto:	db	0			; 
+modrv:	db	0			; 
+ticcnt:	db	0			; interupt counter (counts 1/60 sec)
+sec:	db	0
+min:	db	0
+hour:	db	0
+date:	db	0
+
+lastdrv: db	0ffh			; last host logical drive accessed
+lasthd:	 db	0ffh			; last host head accessed
+dmaadr:	 dw	0080h			; dma address storage
+rtcnt:	 db	0			; retry counter
+nxsec:	 dw	0			; nxt sec to rd during wboot
+btxlt:   dw	0			; translate vector address
+coptr:   db	0			; console output pointer to cp/m
+ciptr:	 db	0			; console input  pointer from sio
+cbuf:	 ds	cbufsz			; console buffer
+ssp:	 dw	0			; system stack pointer save variable
+	 ds	030h			; interupt stack
+istk:
+
+logvec:	 ds	16,0ffh			; drive login vector
+trkvec:	 ds	16,0ffh			; current head position on drive 
+
+sekvars: 				; seek variables 
+seksec:	dw	0			; seek sector 
+smapadr:dw	0			; seek drive drive-map address 
+seklrv:	db	0			; seek logical drive 
+sekprv:	db	0			; seek physical drive
+sektrk:	dw	0			; seek track
+
+dhd:	db	0			; deblocked head 
+dsec:	db	0			; deblocked sector 
+dadr:	dw	0			; deblocked buffer address
+dblk:	dw	0			; deblocked block no. in cylinder
+dblsec:	db	0			; deblocked host sector no. in block
+
+dbconst:				; deblocking constants (calc in ddb)
+secsiz:	  dw	0			; host sector size
+sdhdsn:	  db	0			; hrd dsk - sdh ; fpy dsk - dsn
+pdrv:	  db	0			; physical drive
+hdoff:	  db	0			; head offset
+stprte:	  db	0			; cmd reg step rate	
+hstspt_1: db	0			; host sector per track  
+hstspb_1: db	0			; host sectors per block	
+hdshf:	  db	0			; log2 cpm spt
+blkshf:	  db	0			; log2 cpm spb
+hdmsk:	  db	0			; heads - 1
+secshf:	  db	0			; log2 cpm sps
+cpmsps_1: db	0			; cpm sps - 1
+
+hstvars:				; host drive variables
+hmapadr:dw	0			; host drive drive-map address
+hstlrv: db	0			; last logical drive operated on
+hstprv:	db	0			;      physical drive
+hsttrk:	dw	0			;      track (equiv to cylinder)
+hsthd:	db	0			;      head
+hstsec:	db	0			;      sector
+hstadr:	dw	0			;      buffer address
+hstblk:	dw	0			;      block no. in current cylinder 
+blksec:	db	0			;      host sector no. in block
+hstsiz:	dw	0			;      physical sector size
+hstsdh:	db	0			;      sdh register sector size setting
+
+wrtpnd:	db	0			; write pending (host buffer active)
+wrttyp:	db	0			; write type (0=use, 1=dir, 2=free)
+
+oper:	db	0			; operation (0=write, 1=read)
+
+trkid:					; track id buffer for read address cmd
+trkno:	db	0			; track number
+sideno:	db	0			; side number
+secno:	db	0			; sector number
+seclen:	db	0			; sector size 0,1,2,3
+crc1:	db	0			; crc code 1
+crc2:	db	0			; crc code 2
+
+;------------------------------------------------------------------------------
+;			    DRIVE PARAMETER DEFINITIONS
+;------------------------------------------------------------------------------
+;
+; dskdef < drvtyp0, drvtyp1, ... , drvtypm>
+;
+;------------------------------------------------------------------------------
+
+	dskdef <f8,sa1004>
+
+;-------------------------
+; COLD BOOT INITALIZATION
+;-------------------------
+;
+; Any code or data that follows the dskdef macro will be available only
+; upon cold boot becuase  the following memory space is allocated as the
+; disk buffer and will be written over with the first disk access.
+;
+
+coldboot: 
+
+	ei
+	ld	sp,0100h
+
+;----------------------
+; PAGE 0 INITALIZATION
+;----------------------
+
+	ld	a,iobval		; initalize iobyte in page 0 (00003)
+	ld	(iobyte),a		; lst = 2, pun = 1, rdr = 1, con = 0
+	ld	a,dfun*16+dfdn		; initalize user and disk #
+	ld	(cdisk),a		; page 0, address 4
+
+;-------------------------
+; BAUD RATE INITALIZATION
+;-------------------------
+
+	in	a,(015h)		; initalize baud rate (OK on sq also)
+	and	07fh			; read baud switchs, mask off #dsk sds
+	out	(018h),a		; send it to baud set port
+
+;-------------------------
+; HARD DISK INITALIZATION
+;-------------------------
+
+	ld	hl,drvmap-6		; initalize hd step rate 
+	ld	de,6			; entry size in drive map
+	ld	a,16d			; drive counter
+
+chkhd:
+
+	add	hl,de			; point to next entry in dmap
+
+	push	hl			; save dmap pointer
+	push	de			; save entry size
+	push	af			; save ldrv counter
+
+	ld	a,(hl)			; load a-reg w. drv type, zero = hard
+	and	a			; set zero flag if hard
+
+	jr	nz,nextdrv		; jump if not hard disk
+
+	inc	hl			; select physical drive from dmap
+	ld	b,(hl)			; next entry in dmap is pdrv
+	sla	b			; shift it over to bits 3 and 4 
+	sla	b			; for sdh reg setting
+	sla	b			; 
+
+	inc	hl			; put ddb address in d & e-reg
+	inc	hl			; last entry / entry in dmap is ddb adr
+
+	inc	hl			; hl points to ddb address of drive
+	ld	e,(hl)			; load d & e-reg w. ddb address
+	inc	hl			; point to high byte
+	ld	d,(hl)			; put it in d
+
+	ld	hl,2			; sdh reg setting is 2nd entry in ddb
+	add	hl,de			; add in sdh offset to ddb addr
+	ld	a,(hl)			; get sdh value
+	or	b			; or in physical drive no
+	out	(hsdh),a		; send result to hdc-1001
+
+	xor	a			; clear cylinder no. registers
+	out	(hcylhi),a		; first high
+	inc	a			; seek cylinder no. 1
+	out	(hcyllow),a		; then low
+
+	ld	hl,5			; offset into ddb for step rate
+	add	hl,de			; add in base address of ddb
+	ld	a,(hl)			; move step rate into a-reg 
+	or	070h			; or in command to seek
+	out	(hcmd),a		; send restore w. proper stp rte
+	call	polbsy
+	
+nextdrv:
+	pop	af			; restore registers 
+	pop	de			; these reg contain values need
+	pop	hl			; in hdc initalization loop
+	dec	a			; decrement drive no count
+	jr	nz,chkhd		; loop until done w. all 16 drives
+
+;--------------------------------
+; SERIAL CHANNEL A INITALIZATION
+;--------------------------------
+
+	ld	hl,isioa		; initalize SIO channel A
+	ld	bc,isioal*256+1		; 
+	otir				; 
+
+;--------------------------------
+; SERIAL CHANNEL B INITALIZATION
+;--------------------------------
+
+	ld	hl,isiob		; initalize SIO channel B
+	ld	bc,isiobl*256+3		;  
+	otir				; 
+
+;-------------------------------
+; INTERUPT VECTOR INITALIZATION
+;-------------------------------
+
+	ld	hl,isrtbl		; initialize interrupt vector
+	ld	a,h			; 
+	ld	i,a			; 
+	im	2			; 
+
+;-----------------------------------------
+; PARALLEL CHANNEL A AND B INITALIZATION
+;-----------------------------------------
+
+	ld	a,0fh			; initalize pio channels
+	out	(pioac),a		; 
+	ld	a,0cfh			; 
+	out	(piobc),a		; 
+	ld	a,00011111b		; 
+	out	(piobc),a		; 
+	xor	a			; 
+	out	(piobd),a		; 
+
+;-------------------
+; CTC INITALIZATION 
+;-------------------
+
+ctcinit:
+	ld	a,counter+tcfol+reset+ctrlwd 
+	out	(ctc0),a		; initalize ctc channel 0
+
+	ld	a,250d			; time constant for channel 0
+	out	(ctc0),a		; channel 0 is expecting this
+
+	ld	a,inter+counter+tcfol+reset+ctrlwd
+	out	(ctc1),a		; initalize ctc channel 1
+
+	ld	a,100d			; time constant for ctc channel 1
+	out	(ctc1),a		; this channel issues interupts
+
+	ld	hl,ctcvec		; addr of ctc svc in inter table 
+	ld	a,l			; need only the low byte of addr
+	out	(ctc0),a		; better be on a 8-byte block boundry
+
+;-------------------------
+; DISPLAY SIGN ON MESSAGE
+;-------------------------
+
+	ld	a,(start+5)		; warm boot vector
+	add	a,6			; 
+	srl	a			; 
+	srl	a			; A=memory size in K
+	call	twodec			; get ASCII digits for memory size
+	ld	(syssiz),bc		; 
+	ld	hl,signon		; 
+	call	pmsg			;  
+
+	jp	wbootx
+
+;-----------------------------------------------
+; CONVERT A-REG < 100 TO TWO ASCII DIGITS IN CB
+;-----------------------------------------------
+
+twodec:
+	ld	bc,0affh		; nxtten:
+	inc	c			; 
+	sub	b			; 
+	jr	nc,nxtten		; 
+	add	a,b			; 
+	add	a,030h			; 
+	ld	b,a			; 
+	ld	a,030h			; 
+	add	a,c			; 
+	ld	c,a			; 
+	ret
+
+;---------------------------
+; COLD BOOT SIGNON MESSAGES
+;---------------------------
+
+signon:
+	db	0dh,0ah,'Super Bios v. 2.4',0dh,0ah
+syssiz:	db	0,0,'K CP/M 2.2 installed',0dh,0ah,0ah,'$'
+
+;-------------------------------
+; SIO CH. A INITALIZATION TABLE
+;-------------------------------
+
+isioa:
+	db	018h			; channel reset
+	db	001h			; write reg 1
+	db	018h			; Int on all recv char (no parity)
+	db	003h			; write reg 3
+	db	0c1h			; Rx 8-bit char, Rx enable
+	db	004h			; write reg 4
+	db	044h			; X16 clock, 1 stop bit
+	db	005h			; write reg 5
+	db	0eah			; DTR, Tx 8-bit char, Tx enable, RTS
+	db	000h			; read reg 0
+isioal	equ	$-isioa			; length of sequence
+
+;-------------------------------
+; SIO CH. B INITALIZATION TABLE
+;-------------------------------
+
+isiob:
+	db	018h			; channel reset
+	db	001h			; write reg 1
+	db	004h			; Status affects interrupt vector
+	db	002h			; write reg 2
+	db	low(isrtbl-start)	; Interrupt vector table start
+	db	003h			; write reg 3
+	db	0c1h			; Rx 8-bit char, Rx enable
+	db	004h			; write reg 4
+	db	044h			; X16 clock, 1 stop bit
+	db	005h			; write reg 5
+	db	0eah			; DTR, Tx 8-bit char, Tx enable, RTS
+	db	000h			; read reg 0
+isiobl	equ	$-isiob			; length of sequence
+
+	ds	maxhst-($-coldboot)
+
+endadr:	end

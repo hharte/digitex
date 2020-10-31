@@ -1,0 +1,19 @@
+;---------------------------
+; GENERATING A CPM.SYS FILE
+;---------------------------
+;
+; make sure all equates and parameters are set in the suprbios.mac file (see
+; suprbios.doc file)
+;
+
+xsub
+movcpm 60 *
+save 34 cpm60.com
+m80 =suprbios/l
+l80 /p:100,suprbios,suprbios/n/e
+zsid cpm60.com
+m980,1f7f,100
+isuprbios.com
+r1600
+g0
+save 43 cpm.sys

@@ -1,0 +1,176 @@
+System Generation
+-----------------
+
+1.  	To assemble and link your SuperBios version 3.44 of MicroSoft's 
+	M80.COM and L80.COM is needed. Releases previous to this version
+	will not assemble various pseudo ops used in the bios.
+
+2.	Set the default user number and default drive number equates
+	(dfun, dfdn) to the drive and user number to attach to after a 
+	coldboot.  The drive number must be one of the logical drives
+	specified in the drive configuration macro, 'dskdef'.
+
+3.	Set the floppy step rate equate (fstpr) to a value that will 
+	work for all floppys attached to the system.  Legitmate values
+	are in the range 0-3 and correspond to the following step rates:
+
+	fstpr	8" step rate	5" step rate
+	-----	------------	------------
+
+	0	 3 ms		 6 ms
+	1	 6 ms		12 ms
+	2	10 ms		20 ms
+	3	15 ms		30 ms
+
+	The value the fstpr is set to will be used by all floppys configured
+	on the system, both 8" and 5". 
+
+4.	Set the '.Phase' pseudo-op to the address of where the Bios will
+	operate. If using a CPM60.COM file, this address will be 0EA00h,
+	if using CPM61.COM set this address to 0EE00h, CPM59.COM --- 0E600h,
+ 	ect. This pseudo-op is located immediately before the bios 
+	jump vector in the source file.
+
+5. 	Set the 'dskdef' macro near the end of the source file to the
+	type of drive(s) to be configured on the system.  The  logical 
+	mapping of the drives is given by the left to right ordering of
+	the physical drives in the macro parameters.  The maximum size
+	of a logical storage device under CP/M 2.2 is 8.3M, so keep in
+	mind that certain hard disk drives will automaticaly be partioned
+	into multiple logical drives.  
+	
+	i.e., if two 8" floppies, and 1 ST503 hard drive are to be 
+	configured, set the dskdef macro to:
+
+	dskdef	<f8,f8,st503>
+
+	The first 8" floppy (f8) will be logical drive A:, the second
+	floppy will be logical drive B:, and the hard disk (st503) will 
+	be logical drives C: and D:.  The hard disk is divided into two 
+	drives because its formated capacity exceeds CP/M 2.2 storage 
+	devices size limitation.
+
+	Refer to the SuperBios library for the various hard drives that 
+	can be configured.
+
+6.	Assemble the bios using M80 with the following command line:
+
+	M80 =SUPRBIOS/L
+
+	The /L switch will produce a .PRN file with the macros expanded.
+
+7.	Link the bios using L80 with the following command line:
+
+	L80 /P:100,SUPRBIOS,SUPRBIOS/N/E
+
+8.	Do a MOVCPM ?? *, where ?? is the size of the cpm system to create
+	and save as a CPM??.COM file. The size of the system created should
+	reflect the value of the address set in 2.
+
+9.	Patch the Bios and CP/M together as follows:
+
+	ddt CPM??.COM
+	DDT VERS 2.2
+	NEXT PC
+	2300 0100
+	-M980,1F7F,100
+	-ISUPRBIOS.COM
+	-R1600
+	NEXT PC
+	???? 0100
+	-G0
+	A>SAVE ?? XCPM.SYS
+
+	The value to save will vary depending on your system configuration,
+	and can be calculated as follows: EX. if ???? = 2A80, then
+	use the high byte of the address, 2A, and round up if the low byte is
+	not 0, in this case to 2B, convert from hexadecimal to decimal,
+ 	(2*16) + (11*1) = 43 decimal, and subtract 1, for the result,
+	which is 42 in this example.  Thus, you would type SAVE 42 XCPM.SYS
+ 	at the A> prompt.
+
+10.	You now have a complete os ready to be renamed to CPM.SYS
+	and executed.
+
+
+I/O Byte Implementation
+-----------------------
+
+The logical to physical device mapping can temporarily be changed until
+the next coldboot via the stat command.The physical to logical device
+mapping as viewed from "STAT" is as follows: 
+	
+
+       sioa  siob  pioab not used	(physical device names)
+       ----- ----  ----- --------
+
+con: = tty:  crt:  bat:  uc1:		(logical device names for con:)
+rdr: = tty:  ptr:  ur1:  ur2:		(logical device names for rdr:)
+pun: = tty:  ptp:  up1:  up2:		(logical device names for pun:)
+lst: = tty:  crt:  lpt:  uc1:		(logical device names for lst:)
+
+
+To change the LST: device mapping from the parallel channel to the 
+second serial channel, execute the following command:
+
+
+stat lst:=crt:
+
+
+To change the LST: device back to the parrallel channel, do the following
+at the system prompt:
+
+
+stat lst:=lpt:
+
+
+To change the mapping of the rdr: and pun: to the parrallel channel, type
+the following command:
+
+
+stat rdr:=ur1: 
+stat pun:=up1:
+
+
+To change the rdr: and pun: back to the second serial channel, type the 
+following command: 
+
+
+stat rdr:=ptr:
+stat pun:=ptp:
+
+
+Other possibilities exists, such as changing the console to the second
+serial channel (stat con:=crt:) or changing the rdr: and pun: to the
+first serial channel (stat rdr:=tty: / stat pun:=tty:), though these
+are generally not used.
+
+To change the default device mappings upon coldboot,  set the logical 
+device equates in the SUPERBIOS to the physical device that it is to
+be associated with and then re-generate the system.  The following shows 
+the standard configuration:
+
+
+lst	equ	pio  shl 6		; printer  device output to pio ch. a-b
+pun	equ	siob shl 4		; auxilary device output to sio ch. b
+rdr	equ	siob shl 2		; auxilary device input  to sio ch. b
+con	equ	sioa shl 0		; console  device i / o  to sio ch. a
+
+iobval	equ	lst+pun+rdr+con		; iobyte setting (always the same)
+
+
+To change the default printer from the parrallel device to the second 
+serial channel, the mapping in the SUPERBIOS should be as follows:
+
+
+lst	equ	siob shl 6		; printer  device output to sio ch. b
+pun	equ	pio  shl 4		; auxilary device output to pio ch. a-b
+rdr	equ	pio  shl 2		; auxilary device input  to pio ch. a-b
+con	equ	sioa shl 0		; console  device i / o  to sio ch. a
+
+iobval	equ	lst+pun+rdr+con		; iobyte setting (remains the same) 
+
+
+Of cource, once any changes have been made to the source code, the system
+must be re-generated.
+

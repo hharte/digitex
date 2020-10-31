@@ -1,0 +1,51 @@
+                    SUPRBIOS loader operation
+
+     The SUPERBIOS makes use of a system file loader to bring the 
+system into memory on a cold boot.  The loader is allowed to be a 
+maximum of C80H bytes long.   In the standard implementation, the 
+loader  looks  for the file CPM.SYS on floppy drive 0  (that  is, 
+that  drive which reponds to the physical line Drive Select 0  ).  
+If the file is not present, the loader will respond with an error 
+message  to the terminal.   Otherwise,  the loader will load  the 
+system   file  into  memory  starting  at  some  buffer  location 
+(normally 2000H).  The loader then determines the load address of 
+the  CP/M system and blockmoves it to that address.   The  loader 
+also  fills in a table in the SUPERBIOS which contains a  map  of 
+where on the disk the file CPM.SYS is located.   This information 
+is necessary so that the SUPERBIOS can reload the CCP and BDOS on 
+a  warm  boot.   That is why you must not change density  on  the 
+system  disk if it is a floppy,  since disks of different density 
+have  the  CPM.SYS file in different places,  and  changing  disk 
+density makes a warm boot impossible.
+
+     The LDRGEN program is the equivalent to SYSGEN in a standard 
+system.   It transfers the outer track only from the source  disk 
+to  the destination.   After running LDRGEN,  you must transfer a 
+valid CPM.SYS file to the disk for it to be bootable.
+
+
+Customizing the loader:
+
+     The  loader is a .COM file which executes at 100H.   If  you 
+wish  to  boot off a disk other than a  floppy  drive,  you  must 
+integrate a customized BIOS for the loader.  The BIOS is org'd at 
+500H  with a standard BIOS jump table,  and must support  console 
+output  and all disk functions except write (for the single  boot 
+disk).
+
+     Since the loader is a .COM file, you can debug it by running 
+the  loader  as a normal transient program under  your  debugger.  
+When  the  custom loader is debugged,  it can be LDRGEN'd onto  a 
+disk by passing the filename as a command parameter to LDRGEN:
+
+     LDRGEN B:CUSTMLDR.COM
+
+     The  loader source is included for your use.   The  loagical 
+function of the loader in finding a file on the default disk  can 
+be  used to support loading of system files from a boot volume to 
+a volatile system volume (e.g. a memory disk).  Modify the loader 
+so that after the system is loaded and blockmoved,  the  coldboot 
+routine  returns to the loader.   Then read the system file  from 
+the  boot  volume  and write them to the system disk  using  BDOS 
+calls.
+

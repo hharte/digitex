@@ -1,0 +1,71 @@
+	title	Track 0 - Sector 0 Cold Boot Loader 
+
+	.z80
+;
+; Memory port equates 
+;
+
+memry	equ	16h			;memory control port
+
+;
+; HDC-1001 port equates
+;
+
+HDCBASE	EQU	0E0H			; Base of HDC1001
+HDCDATA	EQU	HDCBASE			; Data port
+WPC	EQU	HDCBASE+1		; Write precomp port
+HDCERR	EQU	WPC			; Error port
+SECNT	EQU	HDCBASE+2		; Sector count
+SECNO	EQU	HDCBASE+3		; Sector number
+CYLLO	EQU	HDCBASE+4		; Cylinder low
+CYLHI	EQU	HDCBASE+5		; Cylinder high
+SDH	EQU	HDCBASE+6		; Size/Drive/Head
+COMND	EQU	HDCBASE+7		; Command register
+STATUS	EQU	COMND			; Status register
+
+;
+; HDC-1001 commands
+;
+
+CREST	EQU	10H			; Restore command
+CSEEK	EQU	70H			; Seek command
+CREAD	EQU	20H			; Read sector command
+
+;
+; Start
+;
+
+start:
+	ld	A,06fh			;get command to memory port
+	out	(memry),A		;turn off prom
+
+	ld	BC,hdcdata		;get port number and transfer length
+	ld	HL,080h			;starting address
+	ld	DE,10			;number of sectors to transfer
+
+loop:
+	ld	A,D			;send sector to controller
+	out	(secno),A
+	ld	A,cread			;send read command
+	out	(comnd),A
+swait:
+	in	A,(status)		;wait till done
+	or	A
+	jp	m,swait
+	rra				;any errors
+	jr	c,herror
+
+	inir				;get data
+	inir
+
+	inc	D			;increment sector to read
+	dec	E			;decrement sector count
+	jr	nz,loop			;if more go do it
+	jp	100h			;else go execute loader
+
+herror:	
+	ld	A,04fh			;turn prom back on
+	out	(memry),A
+	jp	0f030h			;return to monitor hard disk error return
+
+	end

@@ -1,0 +1,105 @@
+	.z80
+;
+;
+;COLD BOOT LOADER FOR CP/M 2.2
+; FOR THE Z80 SBC
+;LAST UPDATE 5/15/82
+;
+
+false	equ	0			;logical equates
+true	equ	not false
+
+MINI	EQU	false			;set to true for mini
+trk0dd	equ	false			;true = track 00 double density
+dsd	equ	true			;true = double sided for double density use
+;
+RTYN	EQU	10			; disk io retries
+SEEKRT	EQU	1			; rate 0=3ms, 1=6ms, 2=10ms, 3=20ms
+CDISK	EQU	4			; last disk selected by the ccp
+BELL	EQU	07			; ding
+MAXDSK	EQU	1			; largest disk number
+MONIT	EQU	0F033H			; monitor boot error entry point
+LOADER	EQU	100H
+
+CMDSTATUS EQU	100H-4
+SECTORS EQU	100H-2
+;
+CMD	EQU	0CH			; fdc command & fdc status register	
+TK	EQU	CMD+1			; fdc track register
+SECMD	EQU	CMD+2			; fdc sector register
+DAL	EQU	CMD+3			; fdc data port
+WAIT	EQU	014H			; hardware wait for fdc intrq + drq
+					;  & drive select - restore latch
+;
+;
+BUFF	EQU	80H			; default dma buffer
+
+;
+;
+
+BOOT:	
+	LD	A,01101111B		;enable memory, turn prom and power on jump off
+	OUT	(16H),A	
+	LD	A,(NSECTS)		;get sectors to load
+	LD	D,A
+
+	LD	HL,80H			;start loading at 80h
+	LD	E,1			;start with sector 1
+RBLK1:	
+	LD	BC,DAL			; no status checks and data port into C
+	LD	A,E			; get sector
+	OUT	(SECMD),A		; set sector
+	LD	A,088H			; get operation
+	OUT	(CMD),A
+	NOP	
+
+READLOOP: 
+	IN	A,(WAIT)		; wait for drq or intrq
+	OR	A			; was it intrq ?
+	JP	P,IODONE		; if so leave
+	INI				;  otherwise get data
+	JR	READLOOP		;   and go do more
+
+IODONE:	
+	IN	A,(CMD)			;get status
+	LD	C,A
+	LD	(CMDSTATUS),BC		;and save it
+	AND	9CH			;any errors
+	JR	NZ,BOOTERROR		;leave if so
+
+	DEC	D			; one less block to get
+	JP	Z,LOADER		; if zero must be done
+
+	INC	E			;  otherwise increment sector
+	LD	A,26+1
+	CP	E			;past end of track
+	JR	NZ,RBLK1		;if not go read more
+
+
+BOOTERROR: 
+	PUSH	AF			;Save errors for monitor reporting
+	LD	(SECTORS),DE		;save error sector
+	LD	A,01001111B		;turn prom on
+	OUT	(16H),A
+	JP	MONIT			;and go back to monitor
+
+
+	ORG	07EH
+NSECTS:
+	IF	trk0dd
+	DB	4			;if track o double density get 4 1024b sectors
+	ELSE
+	DB	24			; else get 24
+	ENDIF
+
+dens:
+	if	trk0dd
+	if	dsd
+	db	0e7h			;double density double sided flag
+	else
+	db	0e6h			;double density single sided flag
+	endif
+	else
+	DB	0E5H			;density flag patched by sysgen
+	endif
+	END	

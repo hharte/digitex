@@ -1,0 +1,79 @@
+	.z80
+
+;--------------------------------------------------
+; COLD BOOT LOADER FOR DMA MICRO MAGNUM DISK DRIVE
+;--------------------------------------------------
+
+;---------------------
+; MEMORY PORT ADDRESS
+;---------------------
+
+memry	equ	016h			; memory control port
+
+;-------------------------
+; HDC-1001 PORT ADDRESSES
+;-------------------------
+
+hbase	equ	0e0h			; base port address of hdc-1001
+hdata	equ	hbase+0			; data register
+herror	equ	hbase+1			; error register
+hwrtpre	equ	hbase+1			; write pre-compensation register
+hseccnt	equ	hbase+2			; sector count register
+hsec	equ	hbase+3			; sector number register
+hcyllow	equ	hbase+4			; cylinder low register
+hcylhi	equ	hbase+5			; cylinder high register
+hsdh	equ	hbase+6			; size - drive - head register
+hstatus	equ	hbase+7			; status register 
+hcmd	equ	hbase+7			; command register 
+
+;-------------------
+; HDC-1001 COMMANDS
+;-------------------
+
+cmdrst	equ	01fh			; restore command
+cmdrd	equ	020h			; read sector command
+cmdwrt	equ	030h			; write sector command		
+
+;-----------------------------
+; STATUS REGISTER BIT TESTERS
+;-----------------------------
+
+bsybit	equ	080h			; busy bit
+rdybit	equ	040h			; data request bit
+errbit	equ	001h			; error bit	
+
+;---------------------------
+; START OF COLD BOOT LOADER 
+;---------------------------
+
+start:	
+	ld	a,06fh			; get command to memory port
+	out	(memry),a		; turn off prom
+
+	ld	bc,hdata		; get port number and transfer length
+	ld	hl,080h			; starting address
+	ld	de,020d			; number of 256 b sectors to transfer
+loop:	
+	ld	a,d			; send sector to controller
+	out	(hsec),a
+	ld	a,cmdrd			; send read command
+	out	(hcmd),a
+swait:	
+	in	a,(hstatus)		; wait till done
+	or	a
+	jp	m,swait
+	rra				; any errors
+	jr	c,error
+
+	inir				; get data
+
+	inc	d			; increment sector to read
+	dec	e			; decrement sector count
+	jr	nz,loop			; if more go do it
+	jp	0100h			; else go execute loader
+error:	
+	ld	a,04fh			; turn prom back on
+	out	(memry),a
+	jp	0f030h			; ret to monitor hard disk err return
+
+	end

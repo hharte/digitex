@@ -1,0 +1,20 @@
+;-----------------------
+; MAKE A TRACK 0 LOADER 
+;-----------------------
+;
+; 1. in ldrbdos, set turbo to false if CP/M 2.2 loader (loads CPM.SYS).
+;    set to true if CP/M 3.0 or Turbo Dos loader (loads  OSLOAD.SYS).
+; 2. set dskdef in ldrbios to type drive loader will be used on.
+; 3. use sbcboot if generating a floppy loader
+;    use sbcdboot if generating a loader for a hard sectored hard disk,
+;    ie. DMA5/5.
+;    use sbchboot if generating a loader of a soft sectored hard disk.
+; 4. use name of disk with 'ldr' extension in link destination file,
+;    ie. f8.ldr st419.ldr
+;
+
+m80 =sbcboot
+m80 =ldrbdos
+m80 =ldrbios
+
+l80 /p:0,sbcboot,/p:80,ldrbdos,/p:480,ldrbios,cm6640.ldr/n/e
