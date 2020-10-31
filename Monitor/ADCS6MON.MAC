@@ -1,0 +1,926 @@
+title monprom	Super Six Monitor Prom
+
+.z80
+
+pbase:
+
+	.phase	0f000h
+
+promsiz	equ	800h
+
+sysbase	equ	0000h
+
+zecho	equ	0ee00h
+fdrdfg	equ	0ee01h
+curadr	equ	0ee02h
+hdflag	equ	0ee04h
+hdsdhb	equ	0ee05h
+
+stack	equ	0ee64h
+
+
+
+;page 60
+;ports
+
+sioad	equ	00h
+sioac	equ	01h
+siobd	equ	02h
+siobc	equ	03h
+
+fdcmd	equ	0ch
+fdtrk	equ	0dhmmcp
+fdsec	equ	0eh
+fddat	equ	0fh
+
+fddsd	equ	14h
+
+baudrd	equ	15h
+baudwr	equ	18h
+
+bank0	equ	16h
+
+hddat	equ	0e0h
+hderg	equ	0e1h
+hdscnt	equ	0e2h
+hdsec	equ	0e3h
+hdcylo	equ	0e4h
+hdcyhi	equ	0e5h
+hdsdh	equ	0e6h
+hdcmd	equ	0e7h
+
+
+;ascii
+
+cr	equ	0dh
+lf	equ	0ah
+
+esc	equ	1bh
+
+page
+	JP	bootin
+	JP	putc
+	JP	getupc
+	JP	cetupc
+	JP	gecho
+	JP	strout
+	JP	crlf
+	JP	space
+	JP	hex1
+	JP	hexit
+	JP	hexhl
+	JP	getnum
+	JP	get2n
+	JP	get4n
+	JP	tstmem
+	JP	negde
+	JP	hdbadx
+	JP	fderr
+	JP	iport
+	JP	oport
+
+
+
+page
+bootin:	IN	A,(baudrd)		;set baud rate for crt
+	OUT	(baudwr),A
+
+	LD	A,04FH			;pon jump off, bank 00 on
+	OUT	(bank0),A
+
+	LD	A,020H			;set in byte for hd sdh reg
+	LD	(hdsdhb),A		;	sector size 512, crc mode
+
+	XOR	A			;reset fpy read flag
+	LD	(fdrdfg),A
+
+	LD	SP,stack
+
+	LD	HL,inisa
+	LD	BC,800h + sioac
+	OTIR
+
+	LD	HL,inisb
+	LD	BC,800h + siobc
+	OTIR
+
+	JP	around
+
+
+inisa:	db	018h,004h,044h,003h,0c1h,005h,0eah,0
+
+inisb:	db	018h,004h,044h,003h,0c1h,005h,0eah,0
+
+
+around:	LD	HL,signon
+	CALL	strout
+
+	LD	HL,signom
+	CALL	strout
+	JP	boot
+
+
+page
+;---------------------
+; Top of command loop
+;---------------------
+
+exec:	LD	SP,stack
+
+	LD	HL,prompt
+	CALL	strout
+	CALL	gecho
+
+	LD	B,A
+	LD	HL,cmdtbl
+
+cloop:	LD	A,(HL)
+	CP	0ffh
+	JR	Z,badcmd
+
+	CP	B
+	JR	Z,gotcmd
+
+	INC	HL
+	INC	HL
+	INC	HL
+	JR	cloop
+
+badcmd:	LD	HL,undef
+
+woopsy:	CALL	strout
+	JR	exec
+
+gotcmd:	INC	HL
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	EX	DE,HL
+	JP	(HL)			;go to command
+
+
+page
+putc:	PUSH	AF
+
+owait:	IN	A,(sioac)
+	AND	4
+	JR	Z,owait
+
+	POP	AF
+	OUT	(sioad),A
+	RET
+
+
+cetupc:	IN	A,(sioac)
+	AND	1			;char ready?
+	RET	Z			;no, exit -- z status
+
+	JR	gitupc
+
+
+getupc:	IN	A,(sioac)
+	AND	1			;char ready?
+	JR	Z,getupc		;no, loop
+
+gitupc:	IN	A,(sioad)
+	AND	7fh			;mask
+
+	CP	'a'			;lt 'a'?
+	RET	C			;yes, exit
+
+	CP	'{'			;lt '{'?
+	RET	NC			;yes, exit
+
+	AND	5fh			;upcase
+	RET
+
+gecho:	LD	A,0ffh
+	LD	(zecho),A
+	CALL	getupc
+
+	PUSH	AF
+	LD	A,(zecho)
+	AND	A
+	JR	NZ,xbarf
+
+	POP	AF
+	RET
+
+xbarf:	POP	AF
+	CP	' '			;ctrl char?
+	CALL	NC,putc			;no, echo
+	RET
+page
+strout:	PUSH	AF
+	PUSH	HL
+
+stroop:	LD	A,(HL)
+	OR	A			;end of string
+	JR	Z,strend		;yes, jump
+
+	CALL	putc
+	INC	HL
+	JR	stroop
+
+strend:	POP	HL
+	POP	AF
+	RET
+
+crlf:	PUSH	HL
+	LD	HL,crlfst
+	CALL	strout
+	POP	HL
+	RET
+
+abort?:	CALL	cetupc
+	CP	esc			;escape code?
+	JP	Z,exec			;yes, jump -- abort
+
+	CP	8			;???
+	RET	NC
+
+	JR	abort?
+
+
+space:	PUSH	AF
+	LD	A,' '
+	JR	hspit
+
+page
+hexit:	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	hex1
+
+	POP	AF
+
+hex1:	PUSH	AF
+	AND	0fh
+	ADD	A,90h
+	DAA
+	ADC	A,40h
+	DAA
+
+hspit:	CALL	putc
+	POP	AF
+	RET
+
+hexhl:	PUSH	AF
+	LD	A,H
+	CALL	hexit
+
+	LD	A,L
+	CALL	hexit
+	POP	AF
+	RET
+
+
+page
+getnum:	CALL	gecho
+	CP	','
+	RET	Z			;end of #
+
+	CP	' '
+	RET	Z			;end of #
+
+	CP	'0'
+	RET	C			;woops
+
+	CP	':'
+	JP	C,isnum			;0 - 9
+
+	CP	'A'
+	RET	C			;woops
+
+	CP	'G'
+	CCF
+	RET	C			;woops
+
+	SUB	007H			;convert A - F
+
+isnum:	SUB	030H			;decode
+	RET
+
+
+page
+get2n:	PUSH	BC
+	PUSH	DE
+
+	LD	C,0
+	LD	E,0
+
+nloop:	CALL	getnum			;number in?
+	JR	NC,nisnum		;yes, jump
+
+	CP	cr			;cr?
+	SCF
+	JR	NZ,bad2n		;no, jump
+
+	LD	A,E
+	OR	A			;any input?
+	JR	NZ,got2n		;yes, jump
+
+	SCF
+	LD	A,cr			;let's pretend it was a cr
+	JR	bad2n
+
+nisnum:	CP	16			;is it a number?
+	JR	NC,got2n		;no, jump
+
+	INC	E			;inc it
+
+	LD	B,A			;save #
+
+	LD	A,C			;get old
+	ADD	A,A			;x 2
+	ADD	A,A			;x 4
+	ADD	A,A			;x 8
+	ADD	A,A			;x 16
+	ADD	A,B			;add in new #
+	LD	C,A			;	-- and all to c
+	JP	nloop
+
+got2n:	LD	A,C			;return in a
+
+bad2n:	POP	DE
+	POP	BC
+	RET
+
+
+page
+get4n:	PUSH	DE
+	LD	HL,0
+	SCF
+	CCF
+	PUSH	AF
+
+n4loop:	CALL	getnum
+	JR	NC,got4n
+
+	CP	cr
+	JR	NZ,bad4n
+
+	CALL	space
+	JR	good4n
+
+bad4n:	POP	AF
+	SCF
+	POP	DE
+	RET
+
+got4n:	CP	16
+	JR	NC,good4n
+
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+
+	LD	E,A
+	LD	D,0
+	ADD	HL,DE
+	JR	n4loop
+
+good4n:	POP	AF
+	POP	DE
+	RET
+
+
+page
+tstmem:	LD	(HL),A
+	CP	(HL)
+	RET	Z
+
+	PUSH	HL
+	LD	HL,memerr
+	CALL	strout
+
+	POP	HL
+	CALL	hexhl
+	JP	exec
+
+page
+;---------------------------------------
+; Load function -- Display & Substitute
+;---------------------------------------
+
+load:	CALL	get4n			;get the start adr
+	JP	NC,lodlop
+
+oops:	LD	HL,woops
+	JP	woopsy
+
+lodlop:	LD	(curadr),HL
+
+dot:	CALL	crlf			;display the current adr
+	LD	HL,(curadr)
+	CALL	hexhl
+	CALL	space
+
+	LD	A,(HL)
+	CALL	hexit
+	CALL	space
+	CALL	get2n			;get the response
+	JP	C,lodcmd
+
+	CALL	tstmem
+
+lodinc:	LD	HL,(curadr)		;inc the current adr
+	INC	HL
+	JP	lodlop
+
+lodcmd:	CP	cr			;cr terminates
+	JP	Z,exec
+
+	CP	' '			;space means inc
+	JP	Z,lodinc
+
+	CP	'-'			;dash means dec
+	JP	NZ,oops
+
+dash:	LD	HL,(curadr)		;dec the current adr
+	DEC	HL
+	JP	lodlop
+
+
+page
+;-----------
+; Negate DE
+;-----------
+
+negde:	PUSH	AF
+	LD	A,D
+	CPL
+	LD	D,A
+	LD	A,E
+	CPL
+	LD	E,A
+	INC	DE
+	POP	AF
+	RET
+
+page
+;-----------------------
+; Dump memory to screen
+;-----------------------
+
+dump:	CALL	get4de
+	CALL	get4de
+	CALL	negde
+
+dloop:	CALL	crlf
+	CALL	hexhl
+	CALL	space
+
+dloop1:	CALL	space
+
+	LD	A,(HL)
+	CALL	hexit
+	CALL	inchlc
+	CALL	abortc
+
+	CP	013H			;??? worthless
+	CALL	Z,abort?
+
+	LD	A,L
+	AND	0fh
+	JP	Z,dloop
+
+	JP	dloop1
+
+page
+;------------------
+; Go to an address
+;------------------
+
+go:	CALL	get4de
+	EX	DE,HL
+	JP	(HL)
+
+
+;-----------------------
+; Display the help menu
+;-----------------------
+
+help:	LD	HL,helpst
+	CALL	strout
+	JP	exec
+
+inchlc:	PUSH	HL			;cp hl to de -- abort if c, else inc hl
+	ADD	HL,DE
+	JP	C,exec
+
+	POP	HL
+	INC	HL
+	RET
+
+page
+;-------------------
+; Move memory block
+;-------------------
+
+move:	CALL	get4de
+	PUSH	DE
+	CALL	get4de
+	CALL	get4de
+
+	EX	DE,HL
+	EX	(SP),HL
+	CALL	negde
+
+mloop:	LD	A,(HL)
+	EX	(SP),HL
+	CALL	tstmem
+
+	INC	HL
+	EX	(SP),HL
+
+	CALL	inchlc
+	CALL	abortc
+	JP	mloop
+
+
+page
+;-------------
+; Fill memory
+;-------------
+
+fill:	CALL	get4de
+	CALL	get4de
+	CALL	negde
+	CALL	get2n
+	JP	C,oops
+
+floop:	CALL	tstmem
+	CALL	inchlc
+	JP	floop
+
+get4de:	CALL	get4n
+	JP	C,oops
+
+	EX	DE,HL
+	RET
+
+abortc:	CALL	cetupc			;abort on any char
+	OR	A
+	JP	NZ,exec
+
+	RET
+
+;---------------
+; In & Out port
+;---------------
+
+iport:	CALL	get2n
+	JP	C,oops
+
+	LD	C,A
+	IN	A,(C)
+
+	CALL	crlf
+	CALL	hexit
+	JP	exec
+
+oport:	CALL	get2n
+	JP	C,oops
+
+	LD	C,A
+	CALL	get2n
+	JP	C,oops
+
+	OUT	(C),A
+	JP	exec
+
+page
+;----------------------------------
+; Boot -- floppy or hard disk exec
+;----------------------------------
+
+boot:	CALL	abortc
+	CALL	fddset
+	CALL	hdset
+
+fdlop:	CALL	abortc
+	CALL	fdrdy?			;ready to try a read?
+	CALL	NC,fdread		;yes, go try
+	CALL	hdread
+	JR	fdlop
+
+
+page
+;-------------
+; Floppy junk
+;-------------
+
+fddset:	XOR	A
+	OUT	(fddsd),A		;8" sd
+
+	CALL	fdrdy?			;is the drive ready?
+	JP	C,try8dd		;no, jump
+
+	LD	HL,try8dd
+	JR	fdhome
+
+try8dd:	LD	A,8			;8" dd
+	OUT	(fddsd),A
+	CALL	fdrdy?			;ready now?
+	JP	C,try5dd		;no, jump
+
+	LD	HL,try5dd
+	JR	fdhome
+
+try5dd:	LD	A,018H			;5.25' dd
+	OUT	(fddsd),A
+	CALL	fdrdy?			;ready now?
+	RET	C			;no, exit
+
+	LD	HL,fderrs
+
+fdhome:	LD	A,0fh			;restore command
+	OUT	(fdcmd),A
+	CALL	delay
+
+	IN	A,(fddsd)		;force wait for int
+
+	IN	A,(fdcmd)
+	AND	018H			;seek or crc error?
+	RET	Z			;no, exit
+
+	JP	(HL)
+
+
+delay:	LD	A,3
+
+delop:	EX	(SP),HL
+	EX	(SP),HL
+	DEC	A
+	JR	NZ,delop
+
+	RET
+
+page
+;-------------
+; Ready check
+;-------------
+
+fdrdy?:	IN	A,(fdcmd)
+	RLA				;ready?
+	RET	C			;no, return
+
+	LD	HL,3E8H
+
+idxlop:	IN	A,(fdcmd)
+	AND	2			;index found?
+	JR	Z,idxfnd			;no, jump
+
+	DEC	HL
+	LD	A,L
+	OR	H			;timeout?
+	JR	NZ,idxlop		;no, jump
+
+	SCF
+	RET
+
+idxfnd:	LD	B,10
+
+idxlp1:	LD	HL,3E80H
+
+idxlp2:	IN	A,(fdcmd)
+	AND	2			;index found?
+	RET	NZ			;yes, exit
+
+	DEC	HL
+	LD	A,L
+	OR	H			;timeout?
+	JR	NZ,idxlp2		;no, loop
+
+	DJNZ	idxlp1
+
+	SCF
+	RET
+
+
+page
+;------------------
+; Floppy disk read
+;------------------
+
+fdread:	LD	A,0FFH			;indicate attempt to read
+	LD	(fdrdfg),A
+
+	LD	A,1			;set sector 1
+	OUT	(fdsec),A
+
+	LD	A,08CH			;read sector
+	OUT	(fdcmd),A
+
+	LD	HL,sysbase
+	LD	C,fddat
+
+fdrdlp:	IN	A,(fddsd)		;wait for data or int
+	OR	A			;data?
+	JP	P,fdrddn		;no, jump
+
+	INI				;get a byte
+	JP	fdrdlp
+
+fdrddn:	CALL	delay
+	IN	A,(fdcmd)
+	OR	A			;errors?
+	JP	Z,sysbase		;no, jump to booted input
+
+fderrs:	PUSH	AF
+	LD	A,(fdrdfg)
+	OR	A			;have we tried to read?
+	JR	Z,getdsk		;no, jump
+
+fderr:	LD	HL,fderms		;floppy disk err msg out
+	CALL	strout
+
+	POP	AF
+	CALL	hexit
+	JP	exec
+
+getdsk:	POP	AF
+	LD	HL,dskask
+	CALL	strout
+
+	LD	A,0FFH			;reset floppy read flag
+	LD	(fdrdfg),A
+	JP	exec
+
+
+page
+;------------------------
+; Hard disk test & setup
+;------------------------
+
+hdset:	XOR	A			;zap hd regs
+	OUT	(hdsec),A
+	OUT	(hdcylo),A
+	OUT	(hdcyhi),A
+
+	INC	A			;set for 1 sector
+	OUT	(hdscnt),A
+
+	IN	A,(hdsec)		;now, test for hdc1001 ctrlr
+	LD	B,A
+
+	IN	A,(hdcylo)
+	OR	B
+	LD	B,A
+
+	IN	A,(hdcyhi)
+	OR	B
+	LD	(hdflag),A		;	-- and save result
+
+	LD	A,01EH			;do a restore
+	OUT	(hdcmd),A
+	RET
+
+
+page
+;----------------
+; Hard disk read
+;----------------
+
+hdread:	LD	A,(hdflag)
+	OR	A			;is a controller out there?
+	RET	NZ			;no, exit
+
+	IN	A,(hdcmd)
+	AND	050H
+	CP	050H			;ready & seek complete?
+	RET	NZ			;no, exit
+
+	IN	A,(hdcmd)
+	OR	A			;busy?
+	RET	M			;yes, exit
+
+hdrtry:	LD	A,(hdsdhb)		;set sdh
+	OUT	(hdsdh),A
+
+	LD	A,020H			;read sector cmd
+	OUT	(hdcmd),A
+
+hdbzlp:	IN	A,(hdcmd)
+	OR	A			;busy?
+	JP	M,hdbzlp		;yes, loop
+
+	AND	1			;error?
+	JR	NZ,hdbadx		;yes, jump
+
+	LD	HL,0
+	LD	BC,8000h + hddat
+	INIR
+	JP	sysbase
+
+
+page
+hdbadx:	LD	A,(hdsdhb)
+	CP	20h			;sector size = 512?
+	JP	NZ,hderr		;no, go croak
+
+	XOR	A			;try 256 byte sector
+	LD	(hdsdhb),A
+
+	LD	A,1fh			;restore again
+	OUT	(hdcmd),A
+
+hdbzl1:	IN	A,(hdcmd)
+	RL	A			;busy?
+	JR	C,hdbzl1			;yes, loop
+
+	JR	hdrtry
+
+hderr:	LD	HL,hdrms
+	CALL	strout
+
+	IN	A,(hderg)
+	CALL	hexit
+	JP	exec
+
+
+page
+signon:	db	cr,lf,' > ADVANCED DIGITAL CORP.'
+	db	cr,lf,'   SUPER SIX Running',cr,lf,0
+signom:	db	      '   Monitor Version 3.4'
+	db	cr,lf,'   June - 1983'
+	db	cr,lf,'   Press "H" for help'
+	db	cr,lf,'Attempting to boot.......'
+	db	cr,lf,'Press any key to abort boot.',cr,lf,0
+
+prompt:	db	cr,lf,' >',0
+
+undef:	db	' UNDEFINED',0
+
+woops:	db	' ????',0
+
+memerr:	db	cr,cr,lf,'MEMORY WRITE ERROR AT ',0	;???
+
+	db	'ERROR',0
+	db	' PAUSE',0
+	db	'? ',0
+	db	' ABORTED',0
+	db	'STARTING ADDRESS:',0
+	db	'ENDING ADDRESS:',0
+
+fderms:	db	cr,lf,'FDC COLD BOOT ERROR CODE ',0
+
+dskask:	db	cr,lf,'INSERT DISK & PRESS B TO BOOT',0
+
+hdrms:	db	cr,lf,'HDC1001 COLD BOOT ERROR CODE ',0
+
+crlfst:	db	cr,lf,0
+
+helpst:	db	cr,lf,'MONITOR COMMANDS :'
+	db	cr,lf,'B               = Load disk boot loader'
+	db	cr,lf,'DSSSS,QQQQ      = Dump memory in hex from S to Q'
+	db	cr,lf,'FSSSS,QQQQ,BB   = Fill memory from S to Q with B'
+	db	cr,lf,'GAAAA           = Go to address A'
+	db	cr,lf,'IPP             = Input from port P'
+	db	cr,lf,'LAAAA           = Load memory starting at A'
+	db	cr,lf,'MSSSS,QQQQ,DDDD = Move starting at S to Q to Addr. D'
+	db	cr,lf,'OPP,DD          = Output data D to port P'
+	db	cr,lf,'ESC will terminate any command',0
+
+
+page
+;--------------------------
+; Function code jump table
+;--------------------------
+
+cmdtbl:	db	'L'
+	dw	load
+	db	cr
+	dw	exec
+	db	'.'
+	dw	dot
+	db	'-'
+	dw	dash
+	db	'D'
+	dw	dump
+	db	'I'
+	dw	iport
+	db	'O'
+	dw	oport
+	db	'F'
+	dw	fill
+	db	'G'
+	dw	go
+	db	'M'
+	dw	move
+	db	'H'
+	dw	help
+	db	'B'
+	dw	boot
+
+	db	0ffh
+
+
+.dephase
+
+	ds	promsiz-($-pbase) ;,0ffh
+	end
