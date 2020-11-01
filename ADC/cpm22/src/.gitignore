@@ -1,0 +1,8 @@
+*.bin
+*.com
+*.prn
+*.rel
+*.sym
+*.sys
+*.LDR
+*.$$$
