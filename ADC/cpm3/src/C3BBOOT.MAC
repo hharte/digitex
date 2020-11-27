@@ -1,0 +1,145 @@
+	title	LOAD / RELOAD CCP -- CP/M 3.0 -- BANKED
+
+	.z80
+
+bdos	equ	5
+
+	cseg
+	
+;------------------------------
+; LOAD CCP FROM DISK TO BANK 1
+;------------------------------
+
+ldccp?::
+	xor	a			; load the A:CCP.COM file into TPA
+	ld	(ccpfcb+15),a		; zero extent
+
+	ld	hl,0			; 
+	ld	(fcbnr),hl		; start at beginning of file
+
+	ld	de,ccpfcb		; 
+	call	open			; open file containing CCP
+
+	inc	a			;
+	jp	z,noccp			; error if no file...
+
+	ld	de,0100h		;
+	call	setdma			; start of TPA
+
+	ld	de,27			;
+	call	setmulti		; allow up to 16k bytes
+
+	ld	de,ccpfcb		;
+	call	read			; load the thing
+
+;---------------------------------
+; COPY CCP FROM BANK 1 TO BANK 2
+;---------------------------------
+
+copyccp:
+	ld	de,0201h		;
+	jr	moveccp			;
+
+;----------------------------------
+; RELOAD CCP FROM BANK 2 TO BANK 1
+;----------------------------------
+
+rlccp?::
+	ld	de,0102h		;
+
+;-----------------------------------------
+; MOVE CCP FROM SOURCE BANK TO DEST. BANK 
+;-----------------------------------------
+
+moveccp:
+	ld	hl,0100h		; 
+	ld	bc,0c80h		; 
+
+	ld	(banks),de		; 
+
+	ld	a,(@cbnk##)		; 
+	push	af			; save current bank
+
+ld1:	
+	ld	a,(sbnk)		; 
+	call	bnksl?##		; select TPA
+
+	ld	a,(hl)			; 
+	push	af			; get a byte
+
+	ld	a,(dbnk)		; 
+	call	bnksl?##		; select extra bank
+
+	pop	af			; 
+	ld	(hl),a			; save the byte
+
+	inc	hl			; 
+	dec	bc			; bump pointer, drop count
+	ld	a,b			; 
+	or	c			; test for done
+	jr	nz,ld1			; 
+
+	pop	af			; 
+	call	bnksl?##		; restore original bank
+
+	ret	
+
+;------------------------------
+; CP/M BDOS FUNCTION INTERFACE
+;------------------------------
+
+open:	
+	ld	c,15			; 
+	jp	bdos			; open file control block
+
+setdma:	
+	ld	c,26			; 
+	jp	bdos			; set data transfer address
+
+setmulti: 
+	ld	c,44			; 
+	jp	bdos			; set record count
+
+read:	
+	ld	c,20			; 
+	jp	bdos			; read records
+
+;-----------------------
+; NO CCP.COM FILE FOUND
+;-----------------------
+
+noccp:
+	ld	hl,ccpmsg		; 
+	call	pmsg?##			; 
+
+	call	conin?##		; 
+	jp	ldccp?			; 
+
+;--------------------
+; TIME BIOS FUNCTION
+;--------------------
+
+time?::
+	ret				; 
+
+;--------------
+; DATA STORAGE
+;--------------
+
+banks:
+sbnk:	db	0			; 
+dbnk:	db	0			; 
+
+ccpmsg:	db	0dh,0ah,'BIOS Err on A: No CCP.COM file',0
+
+;---------
+; CCP FCB
+;---------
+
+ccpfcb:
+	db	1,'CCP     ','COM',0,0,0,0
+	ds	16
+fcbnr:	db	0,0,0
+
+	end	
+

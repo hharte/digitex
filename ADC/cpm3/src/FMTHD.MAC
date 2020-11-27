@@ -1,0 +1,1000 @@
+
+	TITLE	HDC-1001 HARD DISK FORMATTER 
+
+;--------------------------------
+; AUTHOR  Marcus G. Calescibetta
+; DATE    March 5, 1984
+; VERSION 2.4
+;--------------------------------
+
+	.z80
+
+;-------------------
+; CHARACTER EQUATES
+;-------------------
+
+CR	EQU	00DH			; Carriage return
+LF	EQU	00AH			; Line feed
+BS	EQU	008H			; Back space
+
+;---------------------
+; BDOS FUNCTION CALLS
+;---------------------
+
+BDOS	EQU	005H			; BDOS entry point
+PRTSTR	EQU	009H			; Print string
+CONIN	EQU	001H			; Console input
+CONOUT	EQU	002H			; Console output
+RDBUF	EQU	00AH			; Read console buffer
+CONST	EQU	00BH			; Console status
+
+;----------------------------------
+; HDC-1001 REGISTER PORT ADDRESSES
+;----------------------------------
+
+	include	CONFIG.LIB
+;HDBASE	EQU	0E0H			; HDC1001 base I/O port
+
+DATA	EQU	HDBASE+0		; Data register
+ERROR	EQU	HDBASE+1		; Error register
+PRECOMP	EQU	HDBASE+1		; Write pre-compensation register
+SECNT	EQU	HDBASE+2		; Sector count register
+SECNO	EQU	HDBASE+3		; Sector number register
+CYLLO	EQU	HDBASE+4		; Cylinder low register
+CYLHI	EQU	HDBASE+5		; Cylinder high register
+SDH	EQU	HDBASE+6		; Size/Drive/Head register
+COMND	EQU	HDBASE+7		; Command register
+STATUS	EQU	COMND			; Status register
+
+;-------------------
+; HDC-1001 COMMANDS
+;-------------------
+
+CREST	EQU	10H			; Restore heads
+CREAD	EQU	20H			; Read sector
+CWRITE	EQU	30H			; Write sector
+CFORM	EQU	50H			; Format track
+	PAGE
+
+	ASEG
+	ORG	0100H
+
+;------------------
+; START OF PROGRAM
+;------------------
+
+start:	
+	ld	de,signon		; send signon message
+	ld	c,prtstr		; display message at console
+	call	bdos			; 
+getdrv:
+	ld	de,inbuf		; get response to disk type
+	ld	c,rdbuf			; input line of characters from console
+	call	bdos			; put response in inbuf
+
+	ld	a,(numchr)		; check no. of chars ret 1 or 2
+	cp	0			; check for zero chars returned
+	jr	z,bad			; if zero jump to invalid response 
+	cp	3			; check for three chars returned
+	jr	c,good			; if not then chars ret is 1 or 2
+bad:	
+	ld	de,inval		; display invalid response 
+	ld	c,prtstr		; send message to console
+	call	bdos			;
+
+	ld	de,menu			; display drive menu again
+	ld	c,prtstr		; send it to console
+	call	bdos			;
+	jr	getdrv			; jump to recieve response
+
+;-------------------------
+; CONVERT ASCII TO BINARY
+;-------------------------
+
+good:	
+	ld	de,inttbl		; set up registers
+	ld	hl,0			; inttbl contains user responce
+declp:	
+	push	af			; sav char cnt (no of chars to convert)
+	ld	a,(de)			; get a char 
+	inc	de			; point to next char to fetch	
+	cp	'0'			; check to make sure char is numeric
+	jp	c,bad			; jmp to invalid responce if < 0
+	cp	'9'+1			; check for > 9
+	jp	nc,bad			; if char  > 9 then invalid responce 
+	sub	'0'			; convert from ascii to binary
+
+	ld	b,h			; mult present value * 10
+	ld	c,l			; save it first in bc
+	add	hl,hl			; *2
+	add	hl,hl			; *4
+	add	hl,bc			; *5
+	add	hl,hl			; *10
+	add	a,l			; add in new value
+	ld	l,a			; save it in hl
+	jp	nz,dignc		; check for l reg overflow 
+	inc	h			; if overflow then inc h
+dignc:	
+	pop	af			; return char count to a reg
+	dec	a			; decrement char cnt 
+	jp	nz,declp		; check if done with conversion
+
+;--------------------------
+; CHECK IF CARTRIAGE DRIVE
+;--------------------------
+
+	push	hl			; save drive menu no.
+	ld	a,014h			; drive  no. 20 is a cartriage drive 
+	cp	l			; check if drive selection is 20
+	jp	nz,getpar		; if not then jump out 
+cart:	
+	ld	de,carmsg		; if here then cart drv selected
+	ld	c,prtstr		; ask if format cart only
+	call	bdos			; send if to console
+
+	ld	c,conin			; get responce to format cart only
+	call	bdos			; from console
+
+	and	05fh			; convert reply to uppercase
+	cp	'B'			; check if negative response
+	jp	z,getpar		; jump out if format entire drive
+
+	cp	'C'			; check if positive reply
+	jp	nz,fixed
+	ld	a,1
+	ld	(dmahds),a
+	jp	getpar
+fixed:
+	cp	'F'
+	jp	nz,cart
+	ld	a,1
+	ld	(hdmsk),a
+
+;----------------------
+; GET DRIVE PARAMETERS
+;----------------------
+
+getpar:	
+	pop	hl			; restore drive menu no.
+	ld	d,h			; save it in de
+	ld	e,l			; mult *6 to index into drv par tbl
+	add	hl,hl			; *2
+	add	hl,de			; *3
+	add	hl,hl			; *6
+	ld	de,dskprms		; add in base addr of drv par tbl
+	add	hl,de			; hl now pnts to correct entry
+	ld	de,secs			; now move parms to prog use locs
+	ld	bc,6			; 6 bytes in dskpar tlb entry
+	ldir
+
+;------------------------
+; GET PHYSICAL DRIVE NO.
+; -----------------------
+
+drvin:	
+	ld	de,drvmsg		; ask which phy drv to format
+	ld	c,prtstr		; send msg to console
+	call	bdos
+
+	ld	c,conin			; get response from console
+	call	bdos			;
+
+	sub	'0'			; convert ascii to binary
+	cp	004h			; check if < 4
+	jr	c,goodr			; jmp if reply ok
+	ld	de,inval		; otherwise invalid response 
+	ld	c,prtstr		; send bad reply message 
+	call	bdos			; send it to the console
+	jr	drvin			; try again
+goodr:	
+	ld	(unit),a		;save drive
+
+;-------------
+; QUIT FORMAT
+;-------------
+
+	ld	de,q1			; msg states this will destroy all data
+	ld	c,prtstr		; on drive 
+	call	bdos			; 
+
+	ld	a,(unit)		; display drive no. selected 
+	call	outchr			; covert to ascii, then send to console
+
+	ld	de,q2			; display prompt asking if to procede
+	ld	c,prtstr		;
+	call	bdos			;
+
+	ld	c,conin			; get response
+	call	bdos			;
+	cp	cr			; if carriage return input then 
+	jp	z,doit			; format drive
+abort:	
+	ld	de,abtmsg		; user changed their mind
+	ld	c,prtstr		; display no format performed msg
+	call	bdos			;
+	jp	resel			; return to cpm
+doit:	
+	ld	de,formsg		; display formatting drv msg
+	ld	c,prtstr		;
+	call	bdos			;
+
+;----------------------------
+; CALCULATE INTERLEAVE TABLE
+;----------------------------
+
+	ld	B,040h			; make tbl max size, using 1 byt/sec 
+	ld	hl,inttbl		; point to interleave table
+setlp:	
+	ld	(hl),0ffh		; set all cells in tbl to 0ffh
+	inc	hl			; point to next cell
+	dec	b			; decrement tbl count
+	jp	nz,setlp		; loop unti finished with initalization
+;
+; Generate 16 bit interleave
+;
+	ld	hl,(interb)		; Get interleave byte
+	ld	h,0			; and turn it into a word
+	ld	(inter),hl
+;
+;Next, calculate interleave table upper limit
+;
+	ld	a,(secs)		; Get number of sectors
+	ld	b,a			; Save for later
+	ld	e,a			; Offset off base of int table
+	ld	d,0
+	ld	hl,inttbl
+	add	hl,de
+	ld	a,l			; Negate (2s complement)
+	cpl	
+	ld	l,a
+	ld	a,h
+	cpl	
+	ld	h,a			; This is our upper limit
+	inc	hl
+	ld	(limit),hl
+;
+;Now, negative sector count
+;
+	ld	a,b			; Get sectors per track (SECS)
+	cpl				; And twos complement
+	ld	l,a
+	ld	h,0ffh
+	inc	hl
+	ld	(nsecs),hl
+;
+;Calculate interleave table
+;
+	ld	b,0			; Clear sector number
+	ld	de,inttbl		; Index interleave table
+check:	
+	ld	hl,(limit)		; Make sure limits not exceeded
+	add	hl,de
+	jp	nc,within		; We are within limits
+	ld	hl,(nsecs)		; Otherwise subtract SECS
+	add	hl,de
+xcheck:	
+	ex	de,hl
+	jp	check			; And check limits again
+within:	
+	ld	a,(de)			; This place taken?
+	and	a
+	jp	m,gotit			; If not, we can use it
+	inc	de			; Else, check next one
+	jp	check
+gotit:	
+	ld	a,b			; Store sector number
+	ld	(de),a
+	ld	hl,(inter)		; Increment pointer by
+	add	hl,de			; interleave
+	inc	b			; Increment sector count
+	ld	a,(secs)		; Have we done enough?
+	cp	b
+	jp	nz,xcheck
+
+;---------------------
+; RESTORE DRIVE HEADS
+;---------------------
+
+	ld	a,(sizmsk)		; set up sdh register first
+	ld	b,a			; get sdh register sector size mask    
+	ld	a,(unit)		; get drive no
+	rlca				; rotate it to its proper position     
+	rlca				; for sdh register this is bits 3,4    
+	rlca				; 
+	or	b			; or in sector size
+	ld	(unit),a		; save it for future refrence
+	out	(sdh),a			; send it to sdh register
+
+	ld	a,0ffh			; *
+	out	(precomp),a		; *
+
+	ld	a,(stprte)		; get step rate
+	ld	b,a                     ; save it in b
+	ld	a,crest                 ; load a with a restore command
+	or	b                       ; or in step rate
+	out	(comnd),a               ; send command to controller
+rswait:	                                  
+	in	a,(status)              ; wait until controller done w. restore
+	and	a                       ; check busy bit, bit 8 
+	jp	m,rswait                ; loop until not busy
+	bit	4,a
+	jr	z,rswait
+
+;--------------
+; FORMAT DRIVE
+;--------------
+
+	ld	hl,(cyls)		; get last cylinder
+	push	hl			; save it as current cylinder
+headlp:	
+	call	cylprt			; print current cylinder
+	ld	a,(heads)		; get last head
+	ld	d,a			; save it in d
+	ld	a,0ah			; initalize retry count 
+	ld	(retry),a		; ten retrys per format track
+forlp:
+	push	de			; save current head no.
+
+	ld	a,d			; display head that we are on
+	call	outchr
+
+	ld	e,bs			; backspace to begining of head info
+	ld	c,conout		; send bs to console
+	call	bdos			;
+
+	pop	de			; restore current head no.
+
+	ld	a,(secs)		; get sector count
+	out	(secnt),a		; send it to sector count register
+
+	pop	hl			; restore current cyl no.
+	push	hl			; save current cyl no.
+
+	ld	a,l			; put cyl low in a
+	out	(cyllo),a		; send it to cylinder low register
+
+	ld	a,h			; put cyl high in a
+	out	(cylhi),a		; send it cylinder high register
+
+	ld	a,(unit)		; get sector size, and unit no.
+	or	d			; or in heads
+	out	(sdh),a			; send it to sdh register
+
+	ld	a,0ffh			; *
+	out	(precomp),a		; *
+
+	ld	a,cform			; issue format command
+	out	(comnd),a		; send it to command register
+dwait:
+	in	a,(status)		; wait for data request	
+	and	008H			; by checking data req bit, bit 2 
+	jr	z,dwait			; loop until data requested
+
+;-------------------------
+; SET UP FOR FORMAT TRACK
+;-------------------------
+
+	ld	hl,inttbl		; point to interleave table
+siz512:
+	ld	b,0			; set up b-reg to contain (secsiz / 2)
+	ld	a,(sizmsk)		; check if 512 byte sectors
+	cp	020h			; sdh reg settin =020h if 512 bps 
+	jr	z,sizok			; jump over 256 bps setting
+siz256:
+ 	ld	b,080H			; else set up for 256 bps      
+sizok:
+	ld	a,data			; because we snd 2 byts per iteration
+	ld	c,a			; data register port goes in c
+	xor	a			; set up bad block byte
+
+;-----------------------------------------
+; SEND FORMAT DATA TO HDC-1001 CONTROLLER
+;-----------------------------------------
+
+datalp:
+	out	(c),a			; send bad block byte to controller
+	outi				; send interleave tbl byte to cont
+	jr	nz,datalp		; loop untill sector size transfered
+fwait:
+	in	a,(status)		; wait until done with format cmd
+	and	a			; by checking busy bit, bit 8
+	jp	m,fwait			; loop until controller not busy
+	bit	4,a
+	jr	z,fwait
+
+	rra				; check error bit, bit 0 set
+	jp	nc,fmtok		; jmp over retry if no error
+	
+	ld	a,(retry)		; get format retry count
+	dec	a			; decrement count
+	ld	(retry),a		; save new retry count
+	jp	m,herror		; jmp if pased limit
+	jp	forlp			; else retry format
+fmtok:
+	call	xitck			; check it control c has been typed
+
+	dec	d			; bump head counter
+	ld	a,(hdmsk)
+	xor	d
+	jp	nz,forlp		; passed head 0 or 2, depends on msk
+
+	pop	hl			; restore current cylinder
+	dec	hl			; bump cylinder count
+	ld	a,h			; have we passed cyl 0 yet
+	and	a			; if = -1, then bit 7 in h set 
+	push	hl			; save current cylinder
+	jp	p,headlp		; jmp to format new cyl, reset hd cnt
+	pop	hl			; clear stack
+
+;------------------------
+; VERIFY DRIVE TRACK IDS
+;------------------------
+
+	ld	de,vermsg		; display verifying drive msg
+	ld	c,prtstr		; send to console
+	call	bdos			;
+
+	ld	hl,(cyls) 		; get cylinder count
+	ld	a,(heads)		; get head count
+	ld	e,a			; save it in e
+	ld	a,(secs)		; get sector count
+	dec	a			; decrement sector so numbered from 0
+	ld	d,a			; save it in d
+rhead:	
+	call	cylprt			; print current cylinder no
+	ld	c,e			; Reload head
+rsecs:	
+	push	hl			; save current cylinder
+	push	de			; save head and sector count
+	push	bc			; save current head and sector no.
+
+	ld	a,c			; Output head that we are on
+	call	outchr
+	ld	e,bs
+	ld	c,conout
+	call	bdos
+
+	pop	bc			; restore cur hd and sec 
+	pop	de			; restore hd and sec cnt
+	pop	hl			; restore cur cylinder
+
+	ld	b,d			; reload cur sector w. sec cnt
+readit:	
+	ld	a,b			; load current sector no.
+	out	(secno),a		; send it to sector no. register
+
+	ld	a,l			; load current cylinder low
+	out	(cyllo),a		; send to cylinder low reg
+
+	ld	a,h			; load current cylinder high
+	out	(cylhi),a		; send to cylinder high reg
+
+	ld	a,(unit)		; load sector size and phy drive
+	or	c			; OR in current head no
+	out	(sdh),a			; send to sdh reg
+
+	ld	a,0ffh			; *
+	out	(precomp),a		; *
+
+	ld	a,cread			; load a read command
+	out	(comnd),a		; send to command reg
+rwait:	
+	in	a,(status)		; wait for controller to read sec
+	and	040H			; check ready bit, bit 6
+	jp	z,rwait			; loop until controller ready
+
+	in	a,(status)		; check for errors during read
+	rra				; error bit, bit 0
+	jp	nc,noerr		; jump over if no errors
+
+;----------------------
+; PRINT ERROR MESSAGES
+;----------------------
+
+	push	hl			; save current cylinder  
+	push	de			; save sector and head count	
+	push	bc			; save save current sector and head
+
+	ld	de,errst		; send start of error message
+	ld	c,prtstr		;
+	call	bdos			;
+
+	in	a,(error)		; read error register
+	call	hexout			; display contents in hex
+
+	ld	de,errhd		; point to head literal
+	ld	c,prtstr		; display on console
+	call	bdos			;
+
+	in	a,(sdh)			; read sdh register
+	and	7			; mask for current head no
+	call	outchr			; display single digit
+
+	ld	de,errcyl		; point to cylinder literal
+	ld	c,prtstr		; display on console
+	call	bdos			; display 'cylinder'
+
+	in	a,(cylhi)		; get cylinder high value
+	call	hexout			; display it in hex
+
+	in	a,(cyllo)		; get cylinder low value
+	call	hexout			; display it in hex
+
+	ld	de,errsec		; point to sector literal
+	ld	c,prtstr		; display on cosole
+	call	bdos			; display 'sector'
+
+	in	a,(secno)		; read current sector no 
+	call	hexout			; display value in hex
+
+	ld	de,vermsg1		; send lf to console
+	ld	c,prtstr		;
+	call	bdos			;
+
+	call	cylprt			; display cyl head sec again for fmt lp
+
+	pop	bc			; restore current sec and hd
+	pop	de			; restore sec and head cnt
+	pop	hl			; restore cyl cnt 
+
+;----------------------------------------
+; DECREMENT SECTOR, HEAD AND/OR CYLINDER 
+;----------------------------------------
+
+noerr:	
+	call	xitck			; check if control c typed
+	dec	b			; decrement current sector number
+	jp	p,readit		; jump to read next sector
+
+	dec	c			; decrement current head no
+	ld	a,(hdmsk)
+	xor	c
+	jp	nz,rsecs		; jump to reset sectors 
+
+	dec	hl			; decrement cylinder number
+	ld	a,h			; check if -1
+	and	a			; look at bit 7 in h
+	jp	p,rhead			; jump to reset heads
+
+	ld	de,dnemsg		; display formating complete
+	ld	c,prtstr		;
+	call	bdos			;
+
+	jp	resel			; Reselect original drive
+
+;------------
+; EXIT CHECK
+;------------
+
+xitck:	
+	push	hl			; save regs
+	push	de
+	push	bc
+
+	ld	c,const			; get console status
+	call	bdos			; bdos call 0bh
+	and	a			; bdos returns 0 if no char pending
+	jr	z,skp			; skip if no char else bdos ret a 0ffh
+	ld	c,conin			; get char typed
+	call	bdos			; 
+
+	cp	3			; check for control c
+	jp	z,abort			; if so restart sys
+skp:	
+
+	pop	bc			; restore registers
+ 	pop	de			;
+	pop	hl			;
+	ret
+
+;----------------------------------
+; PRINT HEXADECMIAL VALUE OF A-REG
+;-----------------------------------
+
+hexout:	
+	push	af			; save a-reg
+	rrca				; rotate 4 most significant bits
+	rrca				; 2
+	rrca				; 3 
+	rrca				; 4
+	
+	call	outchr			; Print upper digit
+
+	pop	af			; restore value to display
+outchr:	
+	and	00fh			; mask least significant four bits
+	add	a,'0'			; add in ascii offset
+	cp	'9'+1			; check if > 10
+	jp	m,sndchr		; if no the char ok
+	add	a,07h			; else add in offset to make a-f
+sndchr:
+	ld	e,a			; store result in e for bdos
+	ld	c,conout		; send it to console
+	call	bdos			;
+	ret	
+
+;---------------------------
+; PRINT CYLINDER ON CONSOLE
+;---------------------------
+
+cylprt:	
+	push	de			; save registers
+	push	bc			;
+	push	hl			;
+
+	ld	de,bsmsg		; back up to start of cyl column
+	ld	c,prtstr		; 
+	call	bdos			;
+
+	pop	hl			; get cylinder from stack
+	push	hl			; put it back
+	ld	a,h			; display cylinder high 
+	call	hexout			; in hex
+
+	pop	hl			; get current cylinder from stack
+	push	hl			; put it back on stack
+	ld	a,l			; display cylinder low 
+	call	hexout			;
+
+	ld	de,hdmsg		; display head msg
+	ld	c,prtstr		;
+	call	bdos			;
+
+	pop	HL			;restore regs
+	pop	bc
+	pop	de
+	ret
+
+;----------------------
+; PRINT ERROR MESSAGES
+;----------------------
+
+herror:
+	in	a,(status)		; read status register
+	and	020h			; check for write fault first
+	jr	z,ckereg		; jump if no write fault error
+
+	ld	de,wrtflt		; address of write fault error msg 
+	ld	c,prtstr		; function to print string on con
+	call	bdos			; do it
+ckereg:
+	in	a,(error)		; read error register
+	ld	hl,errmsg		; base address of messages
+	ld	de,019h			; message length
+	ld	b,008h			; number of possible errors 
+tstbit:
+	rra				; rotate a bit into carry
+	jr	nc,nxbit		; jump if bit not set (no error)
+
+	push	hl			; if here then error bit set
+	push	de			; print error via bdos
+	push	bc			; bdos clobbers registers 
+	push	af			; save current state
+	ex	de,hl			; hl has curren error bit msg addr
+	ld	c,prtstr		; print string function
+	call	bdos			; print error message on console
+	pop	af			; restore registers
+	pop	bc			;
+	pop	de			;
+	pop	hl			;
+nxbit:
+	add	hl,de			; make hl point to next error message
+	dec	b			; decrement error bit counter
+	jr	nz,tstbit		; jump to test next error bit
+resel:	
+	jp	0	
+
+;--------------
+; DATA STORAGE
+;--------------
+
+ERRMSG:
+	DB	cr,lf,'DAM Not Found Error   ','$'
+	DB	cr,lf,'TR000 Error           ','$'
+	DB	cr,lf,'Aborted Command Error ','$'
+	DB	cr,lf,'Undefined Error       ','$'
+	DB	cr,lf,'ID Not Found Error    ','$'
+	DB	cr,lf,'CRC Id Error          ','$'
+	DB	cr,lf,'Uncorrectable Error   ','$'
+	DB	cr,lf,'Bad Block Detect Error','$'
+WRTFLT:	
+	DB	cr,lf,'Write Fault Error     ','$'
+
+;----------------------
+; DISK PARAMETER TABLE
+;----------------------
+
+DSKPRMS:
+ST503:					; 0.
+	DB	16			; sectors
+	DW	152			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+ST506:					; 1.
+	DB	16			; sectors
+	DW	152			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM601s:					; 2.
+	DB	16			; sectors
+	DW	152			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM602s:					; 3.
+	DB	16			; sectors
+	DW	152			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM603s:					; 4.
+	DB	16			; sectors
+	DW	152			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM603se:				; 5.
+	DB	16			; sectors
+	DW	229			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM501:					; 6.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM502:					; 7.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+TM503:					; 8.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+SA602:					; 9.
+	DB	16			; sectors
+	DW	159			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+SA604:					; 10.
+	DB	16			; sectors
+	DW	159			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+SA606:					; 11.
+	DB	16			; sectors
+	DW	159			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	6			; step rate
+SA1002:					; 12.
+	DB	16			; sectors
+	DW	255			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+SA1004:					; 13.
+	DB	16			; sectors
+	DW	255			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+Q2010:					; 14.
+	DB	16			; sectors
+	DW	511			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+Q2020:					; 15.
+	DB	16			; sectors
+	DW	511			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+Q2030:					; 16.
+	DB	16			; sectors
+	DW	511			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+Q2040:					; 17.
+	DB	16			; sectors
+	DW	511			; cylinders-1
+	DB	7			; heads-1
+	DB	020h			; sector size mask
+	DB	0			;  step rate
+M2010:					; 18.
+	DB	16			; sectors
+	DW	479			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+M2020:					; 19.
+	DB	16			; sectors
+	DW	479			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+DMA5_5:					; 20.
+	DB	33			; sectors
+	DW	319			; cylinders-1
+DMAHDS:	DB	3			; heads-1
+	DB	000h			; sector size mask
+	DB	00fh			; step rate (for this drv =0 dma prom, =f wd prom)
+TL213:					; 21.
+	DB	16			; sectors
+	DW	649			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+TL226:					; 22.
+	DB	16			; sectors
+	DW	649			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+TL240:					; 23.
+	DB	16			; sectors
+	DW	649			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+ST406:					; 24.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+ST412:					; 25.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+ST419:					; 26.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+ST425:					; 27.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	7			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+SQ306:					; 28.
+	DB	16			; sectors
+	DW	305			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+MC1302:					; 29.	
+	DB	16			; sectors
+	DW	829			; cylinders-1
+	DB	2			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+MC1303:					; 30.	
+	DB	16			; sectors
+	DW	829			; cylinders-1
+	DB	4			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+MC1304:					; 31.	
+	DB	16			; sectors
+	DW	829			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+MX65:					; 32.
+	DB	16			; sectors
+	DW	829			; cylinders-1
+	DB	6			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+MX85:					; 33.
+	DB	16			; sectors
+	DW	1016			; cylinders-1 (problem fmting 1024)
+	DB	7			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+M3425:					; 34.
+	DB	16			; sectors
+	DW	611			; cylinders-1
+	DB	3			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+CM6640:					; 35.
+	DB	16			; sectors
+	DW	639			; cylinders-1
+	DB	5			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+DMA360:					; 36.
+	DB	17			; sectors
+	DW	611			; cylinders-1
+	DB	1			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+FU55:					; 37.
+	DB	16			; sectors
+	DW	753 			; cylinders-1
+	DB	6			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+FU86:					; 38.
+	DB	16			; sectors
+	DW	753 			; cylinders-1
+	DB	10			; heads-1
+	DB	020h			; sector size mask
+	DB	0			; step rate
+
+;----------
+; MESSAGES
+;----------
+
+SIGNON:	DB	'FMTHD 2.4',CR,LF,LF
+MENU:
+	DB	'0.)  ST 503	10.)  SA 604	20.)  DMA 5/5	30.)  MC 1303',CR,LF
+   	DB	'1.)  ST 506	11.)  SA 606	21.)  TL 213	31.)  MC 1304',  CR,LF
+        DB	'2.)  TM 601S	12.)  SA 1002	22.)  TL 226	32.)  MX 65', CR,LF
+        DB	'3.)  TM 602S	13.)  SA 1004	23.)  TL 240	33.)  MX 85', CR,LF 
+	DB	'4.)  TM 603S	14.)  Q  2010	24.)  ST 406	34.)  M  3425', CR,LF      
+	DB	'5.)  TM 603SE	15.)  Q  2020	25.)  ST 412	35.)  CM 6640',  CR,LF    
+	DB	'6.)  TM 501	16.)  Q  2030	26.)  ST 419	36.)  DMA 360',  CR,LF
+	DB	'7.)  TM 502 	17.)  Q  2040	27.)  ST 425	37.)  FU 55',  CR,LF	 			
+	DB	'8.)  TM 503 	18.)  M  4010	28.)  SQ 306	38.)  FU 86',  CR,LF    
+	DB	'9.)  SA 602	19.)  M  4020	29.)  MC 1302',  CR,LF
+	DB	LF
+	DB	'Enter drive to format: $'              
+
+CARMSG:	DB	CR,LF,'Format (C)artriage, (F)ixed, or (B)oth : $'
+INVAL:	DB	CR,LF,'Invalid input try again.',CR,LF,'$'
+DRVMSG:	DB	CR,LF,'Which physical hard disk do you want to format. (0-3)? $'
+Q1:	DB	CR,LF,'This operation will destroy all data on drive $'
+Q2:	DB	'.',CR,LF,'Hit return to continue or ^C to abort.$'
+FORMSG:	DB	LF,'Formatting. CYLINDER     '
+HDMSG:	DB	' HEAD $'
+BSMSG:	DB	BS,BS,BS,BS,BS,BS,BS,BS,BS,BS,'$'
+VERMSG1:DB	LF
+VERMSG:	DB	CR,'Verifying.  CYLINDER      HEAD $'
+ERRST:	DB	CR,LF,'HDC1001 Error $'
+ERRHD:	DB	' on Head $'
+ERRCYL:	DB	', Cylinder $'
+ERRSEC:	DB	', Sector $'
+DNEMSG:	DB	CR,LF,'Format completed.$'
+URCMSG:	DB	'Sorry, unrecoverable error during format.$'
+ABTMSG:	DB	CR,LF,'Operation aborted.$'
+
+;-----------
+; VARIABLES
+;-----------
+
+HDMSK:	DB	-1
+RETRY:	DB	0			; Retry count
+UNIT:	DS	1			; Physical device unit
+INTERB:	DB	8			; Current interleave
+SECS:	DS	1			; Sectors per track
+CYLS:	DS	2			; Cylinders per drive
+HEADS:	DS	1			; Heads per drive
+SIZMSK:	DS	1			; Sector size mask
+STPRTE:	DS	1			; Step rate 	
+INTER:	DS	2			; 16 bit interleave
+NSECS:	DS	2			; 16 bit negative SECS
+LIMIT:	DS	2			; Upper memory limit of table
+INBUF:	DB	64			; Line input buffer
+NUMCHR:	DS	1			; Number of characters returned
+INTTBL:	DS	64			; Interleave table
+	END	
+

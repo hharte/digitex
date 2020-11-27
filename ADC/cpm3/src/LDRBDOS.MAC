@@ -1,0 +1,542 @@
+	.z80
+
+bdossecs equ	44			;sectors to read on warm boot
+
+buffer	equ	2000h
+
+monit	equ	0f033h			;return to monitor for error
+memory	equ	16h			;to enable monitor PROM
+false	equ	0
+true	equ	not false
+
+devlp	equ	false			;true for devlopment loader to ask what to load
+nmbch	equ	1			;number of choices to choose from
+nmbcpm	equ	1			;number of cp/m choices
+turbo	equ	true			; true for turbodos or CP/M 3.0 loader
+
+;	loader bios access
+
+bios	equ	500h
+
+conin	equ	bios+09h
+conout	equ	bios+0ch
+seldsk	equ	bios+1bh
+settrk	equ	bios+1eh
+setsec	equ	bios+21h
+setdma	equ	bios+24h
+read	equ	bios+27h
+sectran	equ	bios+30h
+
+page
+	.phase	00100h
+start:
+	ld	SP,100h			;use default buffer for stack
+
+	if	devlp
+ques:	ld	HL,signon		;send which boot mess.
+	call	pstrng
+	xor	a
+	call	conin			;get response
+	push	psw			;save input
+	ld	C,A			;display it
+	call	conout
+	pop	psw			;get input back
+	sub	'0'			;make number
+	cp	nmbch			;make sure valid
+	jr	nc,ques			;if not ask again
+	ld	(typeld),A		;save type of load
+	ld	HL,cpmf			;get address of start of file names
+	ld	DE,namlng		;get length of name entry
+floop:	dec	a			;add in length
+	jp	m,fdone			;skip out if no more to add in
+	add	HL,DE			;else add in lingth of entry
+	jr	floop			; and go back for more
+	else
+	if	turbo
+	ld	HL,turbof		;load turbodos loader file name adderss
+	ld	A,1			;force load type
+	ld	(typeld),A
+	else
+	ld	HL,cpmf			;load cp/m file name
+	xor	A			;force load type
+	ld	(typeld),A
+	endif
+	endif
+
+fdone:					;HL points to beg. of name to load
+	ld	DE,filefcb+1		;destination to move to
+	ld	BC,8			;amount to move
+	ldir				;now move file to load
+
+	ld	C,0
+	ld	E,0			;make seldsk know this is the first call
+	call	seldsk
+	ld	A,H
+	or	L
+	ld	DE,badsel
+	jp	z,error			;bad select-HL=0000
+
+	ld	C,(HL)			;hl = dph addr, get XLT tbl, low byte
+	inc	HL
+	ld	B,(HL)
+	ld	A,B
+	or	C			;A=0 if no sector translation
+	ld	(trans),A
+	ld	(XLT),BC
+	ld	DE,7
+	add	HL,DE			;(HL)=DIRBUF address - might as well use it
+					;for our workspace
+	ld	C,(HL)
+	inc	HL
+	ld	B,(HL)
+	ld	(dirbuf),BC
+	push	HL
+	call	setdma			;use the dirbuf for operations
+	pop	HL
+	inc	HL			;(HL)=DPB address
+	ld	E,(HL)
+	inc	HL
+	ld	D,(HL)
+page
+	ex	DE,HL			;HL=DPB address
+	ld	E,(HL)
+	inc	HL
+	ld	D,(HL)			;(HL)=sectors per track
+	ld	(SPT),DE		;highest sector number before next track
+	inc	HL
+	ld	A,(HL)			;Block shift factor
+	ld	(BSH),A
+	inc	HL
+	ld	A,(HL)
+	ld	(BLM),A			;block mask
+	inc	A
+	ld	(blksec),A		;sectors per block
+	inc	HL
+	inc	HL
+	inc	HL
+	ld	A,(HL)			;A=msb of DSM or total block count of drive
+	ld	(blkmsb),A
+	inc	HL
+	ld	E,(HL)
+	inc	HL
+	ld	D,(HL)
+	inc	DE			;make = max dirs. not -1
+	ld	(maxdir),DE
+	ld	DE,5
+	add	HL,DE			;(HL)=track offset
+	ld	C,(HL)
+	inc	HL
+	ld	B,(HL)
+	ld	(trkoff),BC
+	ld	(curtrk),BC
+	call	settrk			;directory starts at first non-system track
+page
+;	Current status of program:
+;		The disk on which the system file resides has been selected
+;		and the head has been stepped to the first directory track
+;		Note that the directory will always start at sector 1 of 
+;		the first non-system track, and will occupy consecutive
+;		sectors through the end of the directory.  The total number
+;		of sectors occupied is (maxdir)/4, but they may be on more
+;		than one track.
+;
+nextsec:				;read next directory sector into the DIRBUF
+	ld	HL,(SPT)
+	ld	BC,(cursec)
+	sbc	HL,BC
+	jr	nc,trksame		;haven't gone to next track yet
+	ld	BC,(curtrk)
+	inc	BC
+	ld	(curtrk),BC
+	call	settrk			;step disk
+	ld	BC,0			;first sector, new track
+trksame: push	BC			;logical sector
+	ld	A,(trans)
+	or	A
+	jr	z,notran		;do we need to do sector translation?
+	ld	DE,(XLT)		;translate table
+	call	sectran
+	push	HL
+	pop	BC	
+notran: call	setsec
+	call	read
+	or	A
+	ld	DE,permerr
+	jp	nz,error		;physical error
+	pop	HL			;sector just read
+	inc	HL
+	ld	(cursec),HL
+;
+;	The next sector of the directory (4 entries) is now in the DIRBUF
+;	Now see if we can find the file
+;
+	ld	HL,(dirbuf)
+	ld	DE,32d
+	ld	B,4
+nextdir: push	HL
+	push	DE
+	push	BC
+	call	match			;match directory entry with FCB
+	pop	BC
+	pop	DE
+	pop	HL
+	jr	z,found			;file found
+	add	HL,DE
+	djnz	nextdir
+;
+;	we've search this sector-no match.  Was it the last?
+;
+	ld	HL,(absec)
+	inc	HL
+	ld	(absec),HL
+	dec	HL			;HL=sectors read so far
+	add	HL,HL
+	add	HL,HL			;sectors x 4 = directory entries
+	ld	DE,(maxdir)
+	sbc	HL,DE
+	ld	DE,nofile
+	jp	z,error
+	jr	nextsec
+	
+page
+;
+;	Match:  match takes as a parameter HL pointing to a directory
+;	entry.  Match returns the zero flag set if the file matches.
+;
+match:	ex	DE,HL			;use DE to point to directory
+	ld	HL,Filefcb		;first character in filename to search
+	ld	BC,0c0dh		;11 characters to match
+nextch:	ld	A,(DE)			;next character in directory entry
+	inc	DE
+	and	7fh			;mask file attribute bits
+	cpi
+	ret	nz			;no match, return
+	djnz	nextch
+	ret
+page
+;
+;	Now we have the correct directory entry, with HL pointing to
+;	the the start of the FCB
+;	Next we expand the block allocation data into a table of items:
+;	
+;	dw track, dw first sector, dw last sector
+
+found:	ld	DE,15d
+	add	HL,DE			;(HL)=records in this extent 
+	ld	DE,filefcb+15d		;DE=block allocation area in filefcb
+	ld	BC,17d
+	ldir				;move to file fcb
+
+	ld	IY,filefcb+16		;pointer to next block
+	ld	IX,boottbl		;pointer to current table entry
+
+	call	getblk			;returns block # in DE
+newtbl:	push	DE
+	call	mktrk			;returns track in BC, 1st sector in HL
+	ld	(IX),C
+	ld	(IX+1),B		;store track
+	ld	(IX+2),L		;first sector
+	ld	(IX+3),H
+	dec	HL			;set up for add
+mrebks1:
+	ld	DE,(blksec)
+	add	HL,DE			;HL=last sector of block
+	ld	DE,(spt)
+	dec	DE			;sectors numbered 0-(spt-1)
+	sbc	HL,DE
+	jr	c,skp
+	jr	nz,newtrk		;block overflows to next track
+skp:	add	HL,DE			;add sectors per track back in
+	ld	(IX+4),L		;save last sector
+	ld	(IX+5),H
+nxtblk:	call	getblk			;get next block #
+	pop	HL			;last block
+	scf
+	ccf
+	sbc	HL,DE
+	inc	HL			;HL=0 if new block adjacent to last
+	ld	A,H
+	or	L
+	jr	z,moreblks
+	ld	BC,6
+	add	IX,BC			;set pointer to next track item
+	jr	newtbl
+
+newtrk:	ld	(IX+4),E		;spt-1  last sector on track
+	ld	(IX+5),D
+	ld	BC,6
+	add	IX,BC			;pointer to next track
+	dec	HL
+	ld	(IX+4),L		;last sector of this block
+	ld	(IX+5),H
+	xor	A
+	ld	(IX+3),A		;start sector zero
+	ld	(IX+2),A
+	ld	C,(IX-6)
+	ld	B,(IX-5)		;last track
+	inc	BC
+	ld	(IX),C
+	ld	(IX+1),B
+	jr	nxtblk
+page
+moreblks:
+	push	DE			;save new block #
+	ld	L,(IX+4)		;last sector so far
+	ld	H,(IX+5)
+	jr	mrebks1			;go do rest of overflow check
+
+;	getblk returns the block # (IY) in DE and moves IY to the next
+;	also, exits loop if block # = 0
+
+getblk:	ld	E,(IY)
+	ld	A,(blkmsb)
+	or	A
+	jr	z,onebyte
+	inc	IY
+	ld	A,(IY)
+onebyte: ld	D,A
+	inc	IY
+	or	E			;block # = 0?
+	ret	nz
+	pop	DE			;lose return in loop
+	jr	tbldone
+
+;	mktrk gets block # in DE, returns track in BC, 1st sector in HL
+
+mktrk:	ex	DE,HL
+	ld	A,(bsh)
+	ld	B,A
+shftblk: add	HL,HL
+	djnz	shftblk
+					;HL=absolute sector number
+	ld	DE,(spt)
+	scf
+	ccf
+	ld	BC,(trkoff)
+	dec	BC
+
+mortrk:	sbc	HL,DE
+	inc	BC
+	jr	nc,mortrk
+
+	add	HL,DE			;restore sector relative in track
+	ret
+page
+
+;
+;	table now contains the track/sector map for all the blocks in
+;	the directory.  Now read the table into memory.
+;
+tbldone:
+	ld	HL,buffer		;start of CCP-starting DMA
+	ld	IY,boottbl-6		;point to boot table
+
+nxttrk:	push	HL			;current DMA
+					;read sectors of next track
+	ld	DE,6			;update track pointer
+	add	IY,DE
+	ld	C,(IY)
+	ld	B,(IY+1)		;BC=track
+	ld	A,B
+	or	C
+	jr	z,bootdone		;last track done
+	call	settrk
+	ld	C,(IY+2)		;get next sector to read
+	ld	B,(IY+3)
+	dec	BC			;pre decrement it
+	ld	(nextsc),BC		;save it
+
+nxtsec:	pop	BC			;DMA
+	push	BC
+	call	setdma
+	scf				;clear carry flag
+	ccf
+	ld	BC,(nextsc)		;get next sector to read
+	inc	BC			;update it
+	ld	L,(IY+4)		;get last sector
+	ld	H,(IY+5)
+	sbc	HL,BC			;any more on this track
+	pop	HL			;fix stack
+	jr	c,nxttrk		;done with last sector
+	ld	(nextsc),BC		;save next sector
+	ld	DE,128
+	add	HL,DE			;update DMA
+	push	HL
+	ld	DE,(xlt)
+	call	sectran
+	ld	C,L
+	ld	B,H
+	call	setsec
+	call	read
+	or	A
+	ld	DE,permerr
+	jr	nz,error		;physical read error
+	jr	nxtsec
+	
+page
+;
+;	the .SYS file is now in memory starting at (buffer)
+;
+
+bootdone:
+	ld	A,(typeld)		;load of cp/m or something else
+	cp	nmbcpm
+	jp	nc,trboot		;if not cp/m leave
+;
+;	we must go through it and remove all the BIOS sectors
+;	to make it a table of CCP and BDOS sectors only for wboot
+;
+	ld	IX,boottbl-6
+	ld	HL,0			;count of sectors in table so far
+nxtitem:
+	push	HL			;save count of sectors so far
+	ld	DE,6
+	add	IX,DE
+	ld	C,(IX+2)		;get first sector this track
+	ld	B,(IX+3)
+	ld	L,(IX+4)		;get last sector this track
+	ld	H,(IX+5)
+	sbc	HL,BC
+	inc	HL			;sectors in this track
+	pop	DE
+	add	HL,DE			;total sectors so far
+	ld	A,bdossecs		;number of sectors for wboot
+	cp	L
+	jr	z,movtbl		;this track ends exactly at the BIOS
+	jr	nc,nxtitem		;keep reading table
+
+					;this is the item we must cut down
+					;B=first sector, C=last sector, E=C-B+1
+					;A=bdossecs, L=sectors through end of track
+	
+	ld	D,A
+	ld	A,L
+	sub	D			;A=sectors to remove	
+	ld	E,A
+	ld	D,0
+	ld	L,(IX+4)
+	ld	H,(IX+5)
+	sbc	HL,DE
+	ld	(IX+4),L		;must contain at least one sector in track
+	ld	(IX+5),H
+page
+
+;
+;	table has now been modified for CP/M wboot use
+;	IX+5 is end of last table entry
+
+movtbl:
+	push	IX
+	pop	HL
+	ld	DE,boottbl-6
+	sbc	HL,DE
+					;HL=length to move
+	ld	B,H
+	ld	C,L
+	ld	HL,boottbl
+	ld	DE,buffer+1637h		;boottbl in buffer-after jump table
+	ldir				;move table
+					;boottbl filled in, now move image to execution
+					;area
+	ld	HL,buffer
+	ld	DE,(buffer+1633h)	;ccp start
+	ld	C,0
+	ld	A,(filefcb+15)		;128 byte records allocated
+	rrca
+	rr	C			;carry=> odd number of records
+	and	7fh
+	ld	B,A
+	ldir				;transfer
+	jp	buffer+1600h		;coldboot jump
+
+	page
+
+;-----------------------
+;	turbodos loader stuff
+;-----------------------
+
+trboot:	
+	ld	HL,80h			;first need to clear default buffer
+	ld	DE,81h
+	xor	A
+	ld	(HL),A
+	ld	BC,30h
+	ldir
+	jp	buffer			;now go to loader
+
+	page
+
+;-----------------------
+;	error message routine
+;-----------------------
+
+error:	ex	DE,HL			;put message address in HL
+	call	pstrng			;send message
+	ld	HL,errmsg		;send error message
+	call	pstrng
+	ld	B,11d			;send file name
+	ld	HL,filefcb
+	call	pstr2
+	ld	A,4fh			;turn prom back on
+	out	(memory),A
+	jp	monit			;go back to monitor
+
+pstrng: ld	B,(HL)
+pstr2:	inc	HL			;HL=first character, B=count
+	push	HL
+	ld	C,(HL)
+	push	BC
+	xor	A
+	call	conout
+	pop	BC
+	pop	HL
+	djnz	pstr2
+	ret
+
+;---------
+; storage
+;---------
+
+filefcb:
+	db	0			;user number
+	db	'        '		;file name filled in at beg. of code
+	db	'SYS'			;extension
+	ds	20			;dummy rest of dir entry
+
+BSH:	db	0			;block shift factor = log2(records/block)
+BLM:	db	0			;block mask = records/block-1
+blkmsb: db	0			;non-zero is >255 blocks on drive
+					;=msb of DSM in DPB
+blksec:	dw	0			;sectors per block (BLM+1)
+dirbuf:	dw	0			;address of DIRBUF
+trans:	db	0			;0 if no sector translation
+XLT:	dw	0			;translate table address
+SPT: 	dw	0			;sector per track count
+maxdir: dw	0			;number of directory entries on disk
+trkoff:	dw	0			;track offset
+curtrk:	dw	0			;current track
+cursec:	dw	0
+absec:	dw	0			;absolute sector
+typeld:	db	0			;load type 0=cp/m, 1=turbodos
+nextsc:	dw	0			;temp storage for next sector to read
+
+;----------
+;messages
+;----------
+
+signon:	db	badsel-$
+	db	0dh,0ah,'Which .SYS file to load',0dh,0ah
+	db	'0 = '
+cpmf:	db	'CPM     ',0DH,0AH
+	db	'1 = '
+turbof:	db	'OSLOAD  ',0DH,0AH
+	db	'? '
+namlng	equ	turbof-cpmf		;length of name entry in above table
+badsel:	db	6,'Select'
+permerr:
+	db	4,'Read'
+nofile:	db	14,'File not found'
+errmsg:	db	14,' error: file  '
+boottbl:
+	ds	1024-($-start),0	; Pad to 1024 bytes so BIOS starts at 480H.
+	end				; in TRK0.LDR.

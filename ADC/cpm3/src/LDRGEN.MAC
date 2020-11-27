@@ -1,0 +1,924 @@
+        title	TRACK 0 LOADER -- WD 1793, 2793; HDC-1001
+
+;-------------------------------- 
+; author  Marcus G. Calescibetta
+; date    April 23, 1984
+; version 2.5
+;--------------------------------
+
+	.z80				; Zilog mneumonics used
+
+;-------------------------
+; HDC-1001 PORT ADDRESSES
+;-------------------------
+
+hbase	equ	0e0h			; base port address of hdc-1001
+hdata	equ	hbase+0			; data register
+herror	equ	hbase+1			; error register
+hwrtpre	equ	hbase+1			; write pre-compensation register
+hseccnt	equ	hbase+2			; sector count register
+hsec	equ	hbase+3			; sector number register
+hcyllow	equ	hbase+4			; cylinder low register
+hcylhi	equ	hbase+5			; cylinder high register
+hsdh	equ	hbase+6			; size - drive - head register
+hstatus	equ	hbase+7			; status register 
+hcmd	equ	hbase+7			; command register 
+
+;-------------------
+; HDC-1001 COMMANDS
+;-------------------
+
+cmdrst1	equ	01eh			; restore soft sector drive
+cmdrst2	equ	01fh			; restore hard sector drive
+cmdrd	equ	020h			; read sector command
+cmdwrt	equ	030h			; write sector command		
+
+;-----------------------------
+; STATUS REGISTER BIT TESTERS
+;-----------------------------
+
+bsybit	equ	080h			; busy bit
+rdybit	equ	040h			; data request bit
+errbit	equ	001h			; error bit	
+
+;-----------------------------
+; FLOPPY CONTROLLER REGISTERS
+;-----------------------------
+
+fbase	equ	0ch			; base port addr of wd-1793 or wd-27
+fcmd	equ	fbase+0			; command register		
+fstat	equ	fbase+0			; status register
+ftrk	equ	fbase+1			; track register
+fsec	equ	fbase+2			; sector register
+fdata	equ	fbase+3			; data register
+fwait	equ	014h			; wait register
+fdsd	equ	014h			; density - size - drive register
+
+;----------------------------
+; FLOPPY CONTROLLER COMMANDS 
+;----------------------------
+
+fstp	equ	001h
+
+frst	equ	00ch + fstp		; fpy restore, head load, verify
+fsek	equ	01ch + fstp		; fpy seek, head load, verify
+frda	equ	0c4h			; fpy read addr
+fwrt	equ	0a4h			; fpy write sec
+frd	equ	084h			; fpy read sec
+fint	equ	0d0h			; fpy int 
+
+;---------------------
+; FILE CONTROLL BLOCK
+;---------------------
+
+fcb	equ	00005Ch			; fcb base addr
+fcbcr	equ	fcb+32			; fcb current record addr
+buf	equ	00900h			; buffer for track 0 loader
+boot	equ	00000h			; jump to warm boot addr
+bdos	equ	00005h			; jump to bdos addr
+coni	equ	01h			; bdos console input  function no.
+cono	equ	02h			; bdos console output function no.
+cr	equ	0dh			; ascii value for carriage return
+lf	equ	0ah			; ascii value for line feed
+
+;------------------
+; START OF PROGRAM
+;------------------
+
+start:
+	ld	sp,stack		; initalize stack pointer
+	ld	hl,signon		; load hl w addr of signon msg
+	call	outmsg			; display signon msg on console
+
+;--------------------------------
+; CHECK FOR FILE IN COMMAND LINE
+;--------------------------------
+
+ckf:
+	ld	a,(fcb+1)		; load a w. first letter of cmd tail
+	cp	' '			; check if its blank
+	jp	z,getldr		; jump if no command tail
+
+;-----------
+; OPEN FILE 
+;-----------
+
+opf:
+	ld	de,fcb			; load de w fcb addr for bdos call
+	call	open			; try and oper file given if cmd line
+	inc	a			; bdos returns a 255 if file not found
+	jp	z,fnf 			; jump if no file
+
+;-----------
+; READ FILE 
+;-----------
+
+rdf:
+	xor	a			; clear a register
+	ld	(fcbcr),a		; set current record to zero 
+
+	ld	de,buf			; this is where the file is read into
+rdflp:
+	push	de			; save buffer addres so can update
+	call	dma			; tell bdos to read file into buffer
+
+	ld	de,fcb			; set up for bdos read 
+	call	dread			; read one logical record
+
+	pop	de			; recall current buffer address 
+	or	a			; check if read successful
+	jr	nz,putldr		; assume EOF if error on read
+
+	ld	hl,080h			; load hl w size of logical record
+	add	hl,de			; add in curr bf addr so hl is new addr
+	ex	de,hl			; put new bf add in de for dma call
+	jr	rdflp			; read in next logical record
+
+;------------------------------
+; GET SYSTEM FROM SOURCE DRIVE
+;------------------------------
+
+getldr:
+	ld	hl,stypmsg
+	call	crmsg
+	call	getcc
+	ld	(drvtyp),a
+
+	cp	cr
+	jp	z,putldr
+	cp	'H'
+	jr	z,gethrd
+	cp	'F'
+	jr	nz,getldr
+
+getfpy:
+	ld	hl,smsg
+	call	getdrv
+	ld	(sdrv),a
+
+	ld	a,(sdrv)
+	call	setden
+	call	frdtrk
+	jp	putldr
+gethrd:
+	ld	hl,smsg
+	call	getdrv
+	ld	(sdrv),a
+
+	ld	a,(sdrv)
+	call	hrdtrk
+	jp	putldr
+
+;---------------------------------
+; PUT SYSTEM ON DESTINATION DRIVE 
+;---------------------------------
+
+putldr:
+	ld	a,(drvtyp)
+	and	a
+	jr	z,getdtyp
+	cp	0dh
+	jr	nz,putjmp
+getdtyp:
+	ld	hl,dtypmsg
+	call	crmsg
+	call	getcc
+
+	cp	cr
+	jp	z,reboot
+
+putjmp:
+	cp	'H'
+	jp	z,puthd
+	cp	'F'
+	jr	nz,putldr
+
+putfpy:
+	ld	hl,dmsg
+	call	getdrv
+	ld	(ddrv),a
+
+	ld	a,(ddrv)
+	call	setden
+	ld	a,(ddrv)
+	call	patchden
+	ld	a,(ddrv)
+	call	setden
+	call	fwrttrk
+	jp	reboot
+puthd:
+	ld	hl,dmsg
+	call	getdrv
+	ld	(ddrv),a
+
+	ld	a,(ddrv)
+	call	hwrttrk
+	jp	reboot
+
+;--------------------------
+; SET DISK DENSITY TRK 000
+;--------------------------
+
+setden:
+tst5dd:
+	ld 	(drv),a
+	ld	b,018h
+	or	b
+	out	(fwait),a
+	ld	(dsd),a
+	ld	d,04
+	ld	a,d
+	ld	(buf+07eh),a
+	ld	hl,tst8sd
+	jr	frestore
+
+tst8sd:
+	ld	a,(drv)
+	out	(fwait),a
+	ld	(dsd),a
+	ld	hl,tst8dd
+	ld	d,026d
+	ld	a,d
+	ld	(buf+07eh),a
+	jr	frestore
+
+tst8dd:
+	ld	a,(drv)
+	ld	b,08h
+	or	b
+	out	(fwait),a
+	ld	(dsd),a
+	ld	hl,trk0err
+	ld	d,04
+	ld	a,d
+	ld	(buf+07eh),a
+	jò	frestore
+
+trk0err:
+	ld	hl,tk0rder
+	call	crmsg
+	jp	0
+
+frestore:
+	call	tstrdy
+	
+	ld	a,frst
+	out	(fcmd),a
+	call	delay
+	in	a,(fwait)
+
+	in	a,(fcmd)
+	and	018h
+	ret	z
+	jp	(hl)
+
+;-----------------------------------------------------
+; GET DISK DENSITY OF TRK 001 AND PATCH TO LOC. buf+07fh
+;-----------------------------------------------------
+
+patchden:
+chk5dd:
+	ld 	(drv),a
+	ld	b,018h
+	or	b
+	out	(fwait),a
+	ld	(dsd),a
+	ld	a,0e6h
+	ld	(buf+07fh),a
+	ld	hl,chk8sd
+	jr	fseek
+
+chk8sd:
+	ld	a,(drv)
+	out	(fwait),a
+	ld	(dsd),a
+	ld	a,0e5h
+	ld	(buf+07fh),a
+	ld	hl,chk8dd
+	jr	fseek
+
+chk8dd:
+	ld	a,(drv)
+	ld	b,08h
+	or	b
+	out	(fwait),a
+	ld	(dsd),a
+	ld	a,0e6h
+	ld	(buf+07fh),a
+	ld	hl,sekerr
+	jò	fseek
+
+sekerr:
+	ld	hl,sekmsg
+	call	crmsg
+	jp	0
+
+fseek:
+	call	tstrdy
+	ld	a,1
+	out	(fdata),a
+	ld	a,fsek
+	out	(fcmd),a
+	call	delay
+	in	a,(fwait)
+	in	a,(fcmd)
+	and	018h
+	jr	z,chkds
+	jp	(hl)
+
+chkds:
+	ld	a,(buf+07fh)
+	and	0e5h
+	ret	z
+	ld	a,(dsd)
+	set	2,a
+	out	(fwait),a
+	
+;	call	tstrdy
+	
+	di
+	ld	c,fdata
+	ld	hl,trkid
+
+	ld	a,frda
+	out	(fcmd),a
+	call	delay
+frdalp:
+	in	a,(fwait)
+	or	a
+	jp	p,frdax
+	ini
+	jr	frdalp
+frdax:
+	in	a,(fcmd)
+	and	018h
+	ret	nz
+
+	ld	a,(sideno)
+	and	a
+	ret	z
+
+	ld	a,0e7h
+	ld	(buf+07fh),a
+	ret
+
+;--------------------
+; FLOPPY WRITE TRACK
+;--------------------
+
+fwrttrk:
+	call	tstrdy
+
+	in	a,(fstat)
+	bit	6,a
+	jr	z,nwrtpro
+
+	ld	hl,wrpmsg
+	call	crmsg
+	call	getcc
+	cp	3
+	jp	z,reboot
+	jp	fwrttrk
+
+nwrtpro:
+	ld	e,1
+	ld	c,fdata
+	ld	hl,buf
+nextsec:
+	di
+
+	ld	a,e
+	out	(fsec),a
+	xor	a
+	out	(ftrk),a
+	ld	a,fwrt
+	out	(fcmd),a
+fwrtlp:
+	in	a,(fwait)
+	or	a
+	jp	p,fwrtout
+	outi
+	jr	fwrtlp
+fwrtout:
+	ei
+	ld	a,d
+	cp	e
+	jp	z,reboot
+	inc	e
+	jr	nextsec
+
+;-----------------
+; HARD READ TRACK 
+;-----------------
+
+hrdtrk:
+	ld	(drv),a
+
+	ld	de,0512d		; bytes per sector
+	ld	b,020h			; sdh reg sec. size setting
+	ld	c,016d			; sector per track
+	call	settsk
+	ld	a,cmdrst1
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hrdsec
+
+	ld	hl,dmard
+	call	crmsg
+	call	getcc
+	cp	'C'
+	jp	z,cartrd
+
+fixrd:
+	ld	de,0256
+	ld	b,2			;*
+	ld	c,32d
+	call	settsk
+	ld	a,cmdrst2
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hrdsec
+
+cartrd:
+	ld	de,0256
+	ld	b,0			;*
+	ld	c,32d
+	call	settsk
+	ld	a,cmdrst2
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hrdsec
+
+hrderr:
+	ld	hl,tk0rder
+	call	crmsg
+	jp	0
+
+hrdsec:
+	ld	(bps),de
+	ld	de,0
+	ld	hl,buf
+hrdnx:
+	ld	a,d
+	out	(hsec),a
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	call	rxdata
+	call	polbsy	
+	jp	nz,hrderr
+
+	inc	d
+	ld	a,c
+	cp	d
+	jp	nz,hrdnx	
+	ret
+
+;------------------
+; HARD WRITE TRACK
+;------------------
+
+hwrttrk:
+	ld	(drv),a
+
+	ld	a,020h
+	ld	(buf+07eh),a
+
+	ld	de,0512d		; bytes per sector
+	ld	b,020h			; sdh reg sec. size setting
+	ld	c,016d			; sector per track
+
+	call	settsk
+	ld	a,cmdrst1
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hwrtsec
+
+	ld	hl,dmawrt
+	call	crmsg
+	call	getcc
+	cp	'C'
+	jp	z,cartwrt
+
+fixwrt:
+	ld	de,0256
+	ld	b,2
+	ld	c,32d
+	call	settsk
+	ld	a,cmdrst2
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hwrtsec
+
+cartwrt:
+	ld	de,0256
+	ld	b,0
+	ld	c,32d
+	call	settsk
+	ld	a,cmdrst2
+	out	(hcmd),a
+	call	polbsy
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+	jr	z,hwrtsec
+
+hwrterr:
+	ld	hl,tk0wrer
+	call	crmsg
+	jp	0
+
+hwrtsec:
+	ld	(bps),de
+	ld	de,0
+	ld	hl,buf
+hwrtnx:
+	ld	a,d
+	out	(hsec),a
+
+	ld	a,cmdwrt
+	out	(hcmd),a
+	call	polbsy
+	call	snddata
+	call	polbsy	
+	jp	nz,hwrterr
+
+	inc	d
+	ld	a,c
+	cp	d
+	jp	nz,hwrtnx	
+	ret
+
+;------------------------------
+; HARD DISK SET TASK REGISTERS
+;------------------------------
+
+settsk:
+	ld	a,(drv)
+	sla	a
+	sla	a
+	sla	a
+	or	b
+	out	(hsdh),a
+	out	(hsdh),a
+
+	xor	a
+	out	(hcylhi),a
+	out	(hcyllow),a
+	out	(hsec),a
+
+	ret
+
+;-----------
+; POLL BUSY
+;-----------
+
+polbsy:
+	in	a,(hstatus)
+	and	a
+	jp	m,polbsy
+
+	call	delay
+	call	delay
+
+polskc:
+	in	a,(hstatus)
+	and	010h
+	jr	z,polskc
+	
+	in	a,(hstatus)
+	and	1
+	ret
+
+;--------------
+; RECIEVE DATA
+;--------------
+
+rxdata:
+	push	bc
+
+	ld	a,(bps)
+	ld	b,a
+	ld	c,hdata
+	inir
+
+	ld	a,(bps+1)
+	and	2
+	jp	z,rxx
+	inir
+rxx:
+	pop	bc
+	ret
+
+;-----------
+; SEND DATA
+;-----------
+
+snddata:
+	push	bc
+
+	ld	a,(bps)
+	ld	b,a
+	ld	c,hdata
+	otir
+	
+	ld	a,(bps+1)
+	and	2
+	jp	z,sndx
+	otir
+sndx:
+	pop	bc
+	ret	
+
+;--------------------
+; FLOPPY READ TRACK
+;--------------------
+
+frdtrk:
+	call	tstrdy
+	ld	e,1
+	ld	c,fdata
+	ld	hl,buf
+rdsec:
+	di
+	ld	a,e
+	out	(fsec),a
+	xor	a
+	out	(ftrk),a
+	ld	a,frd
+	out	(fcmd),a
+frdlp:
+	in	a,(fwait)
+	or	a
+	jp	p,frdout
+	ini
+	jr	frdlp
+frdout:
+	ei
+	ld	a,d
+	cp	e
+	ret	z
+	inc	e
+	jr	rdsec
+
+;--------------------------------
+; GET SOURCE - DESTINATION DRIVE
+;--------------------------------
+
+getdrv:
+	push	hl
+	call	crmsg
+	call	getc
+	pop	hl
+
+	cp	cr
+	jð	z,reboot	
+	cp	'0' 
+	jp	c,getdrv
+	cp	'4' 
+	jp	nc,getdrv
+
+	and	00fh	
+	ret
+
+;-------------------------------
+; TEST IF FLOPPY DRIVE IS READY
+;-------------------------------
+
+tstrdy:
+	push	hl
+	push	de
+	push	bc
+	push	af
+tststart:	
+	ld	a,fint
+	out	(fcmd),a
+	call	delay
+	ld	de,0ffffh
+
+	ld	hl,tstnidx
+tstnidx:
+	in	a,(fstat)
+	bit	1,a
+	jr	nz,decde
+
+	ld	hl,tstidx
+tstidx:
+	in	a,(fstat)
+	bit	1,a
+	jr	z,decde	
+
+	ld	hl,tstrdx
+tstrdx:
+	in	a,(fstat)
+	bit	7,a
+	jr	z,tstx
+
+decde:
+	dec	de
+	ld	a,d
+	or	e
+
+	jr	z,notready
+
+	jp	(hl)
+
+tstx:
+	pop	af
+	pop	bc
+	pop	de
+	pop	hl
+	ret
+
+notready:
+	ld	hl,nrdymsg
+	call	crmsg
+	call	getcc
+	cp	3
+	jp	z,reboot
+	jp	tststart
+	
+;---------------------
+; DELAY 28 US AT 6MHZ
+;---------------------
+
+delay:
+	push	af
+	ld	a,3
+delaylp:
+	ex	(sp),hl
+	ex	(sp),hl
+	dec	a
+	jr	nz,delaylp
+	pop	af
+	ret
+
+;------------------------------------------------
+; GET UPPER CASE CHARACTER FROM CONSOLE KEYBOARD
+;------------------------------------------------
+
+getcc:
+	ld	c,coni	
+	call	bdos
+	and	05fh
+	ret
+
+;-------------------------------------
+; GET CHARACTER FROM CONSOLE KEYBOARD
+;-------------------------------------
+
+getc:
+	ld	c,coni
+	call	bdos
+	ret
+
+;------------------------------
+; DISPLAY CHARACTER ON CONSOLE
+;------------------------------
+
+putc:
+	ld	e,a
+	ld	c,cono
+	call	bdos
+	ret
+
+;--------------------------
+; DISPLAY CR,LF ON CONSOLE
+;--------------------------
+
+crlf:
+	ld	a,cr
+	call	putc
+	ld	a,lf
+	call	putc
+	ret
+
+;------------------------------
+; DISPLAY CR,LF,MSG ON CONSOLE
+;-------------------------------
+
+crmsg:
+	push	hl			; display cr,lf, msg pointed to by hl 
+	call	crlf			; until zero encountered
+	pop	hl			;DROP THRU TO OUTMSG0
+outmsg:
+	ld	a,m
+	or	a
+	ret	z
+
+	push	hl
+	call	putc
+	pop	hl
+	inc	hl
+	jp	outmsg
+
+;-----------------------------------
+; READ LOGICAL SECTOR INTO DMA ADDR
+;-----------------------------------
+
+dread:
+	ld	c,014h
+	jp	bdos
+
+;-----------
+; OPEN FILE
+;-----------
+
+open:
+	ld	c,00fh
+	jp	bdos
+
+;-----------------
+; SET DMA ADDRESS
+;-----------------
+
+dma:
+	ld	c,01ah
+	jp	bdos
+
+;----------------
+; FILE NOT FOUND
+;----------------
+
+fnf:
+	ld	hl,nofile
+	call	crmsg
+
+	xor	a
+	ld	(fcb+13),a
+	ld	hl,fcb+1
+	call	outmsg
+
+;------
+; EXIT
+;------
+
+reboot:
+	call	crlf
+	jp	boot
+	
+;--------------
+; DATA STORAGE
+;--------------
+
+signon:
+	db	'LDRGEN 2.5',cr,lf,0
+nofile:
+	db	'Can''nt open file: ',0
+stypmsg:
+	db	'Read loader from Hard or Floppy drive    (H,F) : ',0
+dtypmsg:
+	db	'Write loader to Hard or Floppy  drive    (H,F) : ',0
+smsg:
+	db	'Physical drive no. of loader source      (0-3) : ',0
+dmsg:
+	db	'Physical drive no. of loader destination (0-3) : ',0
+dmawrt:
+	db	'Write loader to cartriage or fixed       (C,F) : ',0
+dmard:
+	db	'Read loader from cartrige or fixed       (C,F) : ',0
+nrdymsg:
+	db	'Drive Not Ready : ',0
+wrpmsg:
+	db	'Disk Write Protected : ',0
+tk0rder:
+	db	'Cannot Read Track 000',0
+tk0wrer:
+	db	'Cannot Write Track 000',0
+sekmsg:
+	db	'Cannot Read Track 1',0
+
+drvtyp:	db	0			; 'H' or 'F'
+sdrv:	db	0			; source drive
+ddrv:	db	0			; destination drive 
+drv:	db	0			; working variable
+den:	db	0			; disk density byte
+dsd:	db	0			; 
+bps:	dw	0			; hd bytes per sector
+
+trkid:
+trkno:	db	0
+sideno:	db	0
+secno:	db	0
+seclen:	db	0
+crc1:	db	0
+crc2:	db	0
+
+	ds	040h
+stack:
+	end

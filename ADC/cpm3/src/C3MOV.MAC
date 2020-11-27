@@ -1,0 +1,18 @@
+	title	MOVE MODULE -- CP/M 3.0 NON-BANKED
+
+	.z80
+
+xmove?::
+	ret				; no inter bank moves
+
+move?::	
+	ex	de,hl			; passed source in de and dest in hl
+	ldir				; use Z80 block move instruction
+	ex	de,hl			; ret w. next addresses in same regs
+	ret	
+
+bank?::
+	ret				; no bank select in non-banked system
+
+	end	
+

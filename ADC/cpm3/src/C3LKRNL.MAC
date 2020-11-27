@@ -1,0 +1,407 @@
+	TITLE	'Root module of relocatable loader BIOS for CP/M 3.0'
+	.Z80
+
+				; version 1.0 15 Sept 82
+
+TRUE	EQU	-1
+FALSE	EQU	NOT TRUE
+
+BANKED	EQU	TRUE
+	
+
+;		  Copyright (C), 1982
+;		 Digital Research, Inc
+;		     P.O. Box 579
+;		Pacific Grove, CA  93950
+
+
+;   This is the invariant portion of the modular BIOS and is
+;	distributed as source for informational purposes only.
+;	All desired modifications should be performed by
+;	adding or changing externally defined modules.
+;	This allows producing "standard" I/O modules that
+;	can be combined to support a particular system 
+;	configuration.
+
+CR	EQU	13
+LF	EQU	10
+BELL	EQU	7
+CTLQ	EQU	'Q'-'@'
+CTLS	EQU	'S'-'@'
+
+CCP	EQU	0100H			; Console Command Processor gets loaded into the TPA
+
+
+
+	; variables in system data page
+
+
+	; user defined character I/O routines
+
+	EXTRN CO?,ci?,cist?			; each take device in <B>
+
+	; disk communication data items
+
+	EXTRN @DTBL			; table of pointers to XDPHs
+	PUBLIC @ADRV,@RDRV,@TRK,@SECT	; parameters for disk I/O
+	PUBLIC @DMA,@CNT,@DBNK		;    ''       ''   ''  ''
+
+
+	; general utility routines
+
+	PUBLIC PMSG?,PDEC?		; print message, print number from 0 to 65535
+	PUBLIC PDERR?			; print BIOS disk error message header
+
+
+	MACLIB MODEBAUD.LIB		; define mode bits
+
+
+	; External names for BIOS entry points
+
+	PUBLIC BOOT?,WBOOT?,CONST?,CONIN?,CONO?,LIST?,AUXO?,AUXI?
+	PUBLIC HOME?,SLDSK?,STTRK?,STSEC?,STDMA?,READ?,WRITE?
+	PUBLIC LISTS?,SCTRN?
+	PUBLIC CONOS?,AUXIS?,AUXOS?,DVTBL?,DEVIN?,DRTBL?
+	PUBLIC MLTIO?,FLUSH?,MOV?,TIM?,BNKSL?,STBNK?,XMOV?
+
+
+	; BIOS Jump vector.
+	;
+	; All BIOS routines are invoked by calling these
+	;	entry points.
+
+;Public		Local			BIOS	Description
+;Name		Routine			Func
+
+BOOT?:	ret				; 00	initial entry on cold start
+	db	0,0
+WBOOT?:	JP	$			; 01	reentry on program exit, warm start
+
+CONST?:	JP	cist?			; 02	return console input status
+CONIN?:	JP	ci?			; 03	return console input character
+CONO?:	JP	CO?			; 04	send console output character
+LIST?:	JP	$			; 05	send list output character
+AUXO?:	JP	$			; 06	send auxilliary output character
+AUXI?:	JP	$			; 07	return auxilliary input character
+
+HOME?:	JP	HOME			; 08	set disks to logical home
+SLDSK?:	JP	SELDSK			; 09	select disk drive, return disk parameter info
+STTRK?:	JP	SETTRK			; 10	set disk track
+STSEC?:	JP	SETSEC			; 11	set disk sector
+STDMA?:	JP	SETDMA			; 12	set disk I/O memory address
+READ?:	JP	READ			; 13	read physical block(s)
+WRITE?:	JP	WRITE			; 14	write physical block(s)
+
+LISTS?:	JP	$			; 15	return list device status
+SCTRN?:	JP	SECTRN			; 16	translate logical to physical sector
+
+CONOS?:	JP	$			; 17	return console output status
+AUXIS?:	JP	$			; 18	return aux input status
+AUXOS?:	JP	$			; 19	return aux output status
+DVTBL?:	JP	$			; 20	return address of device def table
+DEVIN?:	JP	$			; 21	change baud rate of device
+
+DRTBL?:	JP	$			; 22	return address of disk drive table
+MLTIO?:	JP	$			; 23	set multiple record count for disk I/O
+FLUSH?:	JP	$			; 24	flush BIOS maintained disk caching
+
+MOV?:	JP	move?##			; 25	block move memory to memory
+TIM?:	JP	$			; 26	Signal Time and Date operation
+BNKSL?:	JP	$			; 27	select bank for code execution and default DMA
+STBNK?:	JP	$			; 28	select different bank for disk I/O DMA operations.
+XMOV?:	JP	$			; 29	set source and destination banks for one operation
+
+	JP	$			; 30	reserved for future expansion
+	JP	$			; 31	reserved for future expansion
+	JP	$			; 32	reserved for future expansion
+
+	ds	32
+loc$stk::
+	dw	0
+;
+;	Utility subroutines
+;
+
+IPCHL:					; vectored CALL point
+	JP	(HL)
+
+
+PMSG?:					; print message @<HL> up to a null
+					; saves <BC> & <DE>
+	ld	(loc$stk),SP
+	ld	SP,loc$stk
+	PUSH	BC
+	PUSH	DE
+PMSG$LOOP: 
+	LD	A,(HL)
+	OR	A
+	JP	Z,PMSG$EXIT
+	LD	C,A
+	PUSH	HL
+	CALL	CONO?
+	POP	HL
+	INC	HL
+	JP	PMSG$LOOP
+PMSG$EXIT: 
+	POP	DE
+	POP	BC
+	ld	SP,(loc$stk)
+	RET	
+
+PDEC?:					; print binary number 0-65535 from <HL>
+	LD	BC,TABLE10
+	LD	DE,-10000
+NEXT:	
+	LD	A,'0'-1
+PDECL:	
+	PUSH	HL
+	INC	A
+	ADD	HL,DE
+	JP	NC,STOPLOOP
+	INC	SP
+	INC	SP
+	JP	PDECL
+STOPLOOP: 
+	PUSH	DE
+	PUSH	BC
+	LD	C,A
+	CALL	CONO?
+	POP	BC
+	POP	DE
+NEXTDIGIT: 
+	POP	HL
+	LD	A,(BC)
+	LD	E,A
+	INC	BC
+	LD	A,(BC)
+	LD	D,A
+	INC	BC
+	LD	A,E
+	OR	D
+	JP	NZ,NEXT
+	RET	
+
+TABLE10: 
+	DW	-1000,-100,-10,-1,0
+
+phex::					;print A in hex
+	push	AF
+	rra
+	rra
+	rra
+	rra
+	call	hex1
+	pop	AF
+hex1::	and	0fh
+	add	A,90h
+	daa
+	adc	A,40h
+	daa
+	ld	C,A
+	jp	cono?
+
+
+PDERR?:	
+	LD	HL,DRIVE$MSG
+	CALL	PMSG?			; error header
+	LD	A,(@ADRV)
+	ADD	A,'A'
+	LD	C,A
+	CALL	CONO?			; drive code
+	LD	HL,TRACK$MSG
+	CALL	PMSG?			; track header
+	LD	HL,(@TRK)
+	CALL	PDEC?			; track number
+	LD	HL,SECTOR$MSG
+	CALL	PMSG?			; sector header
+	LD	HL,(@SECT)
+	CALL	PDEC?			; sector number
+	RET	
+
+	;	Disk I/O interface routines
+
+
+	; SELDSK
+	;	Select Disk Drive.  Drive code in <C>.
+	;		Invoke login procedure for drive
+	;		if this is first select.  Return
+	;		address of disk parameter header
+	;		in <HL>
+
+SELDSK::
+	LD	A,C
+	LD	(@ADRV),A		; save drive select code
+	LD	L,C
+	LD	H,0
+	ADD	HL,HL			; create index from drive code
+	LD	BC,@DTBL
+	ADD	HL,BC			; get pointer to dispatch table
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; point at disk descriptor
+	OR	H
+	RET	Z			; if no entry in table, no disk
+	LD	A,E
+	AND	1
+	JP	NZ,NOT$FIRST$SELECT	; examine login bit
+	LD	(loc$stk),SP		;setup local stack
+	ld	SP,loc$stk
+	PUSH	HL
+	EX	DE,HL			; put pointer in stack & <DE>
+	LD	HL,-2
+	ADD	HL,DE
+	LD	A,(HL)
+	LD	(@RDRV),A		; get relative drive
+	LD	HL,-6
+	ADD	HL,DE			; find LOGIN addr
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; get address of LOGIN routine
+	CALL	IPCHL			; call LOGIN
+	POP	HL			; recover DPH pointer
+	ld	SP,(loc$stk)		;restore stack
+NOT$FIRST$SELECT: 
+	RET	
+
+
+	; HOME
+	;	Home selected drive.  Treated as SETTRK(0).
+
+HOME::
+	LD	BC,0			; same as set track zero
+
+
+	; SETTRK
+	;	Set Track. Saves track address from <BC> 
+	;		in @TRK for further operations.
+
+SETTRK::
+	LD	(@TRK),BC
+	RET	
+
+
+	; SETSEC
+	;	Set Sector.  Saves sector number from <BC>
+	;		in @sect for further operations.
+
+SETSEC::
+	LD	(@SECT),BC
+	RET	
+
+
+	; SETDMA
+	;	Set Disk Memory Address.  Saves DMA address
+	;		from <BC> in @DMA and sets @DBNK to @CBNK
+	;		so that further disk operations take place
+	;		in current bank.
+
+SETDMA::
+	LD	(@DMA),BC
+	ret
+
+	; SECTRN
+	;	Sector Translate.  Indexes skew table in <DE>
+	;		with sector in <BC>.  Returns physical sector
+	;		in <HL>.  If no skew table (<DE>=0) then
+	;		returns physical=logical.
+
+SECTRN::
+	LD	L,C
+	LD	H,B
+	LD	A,D
+	OR	E
+	RET	Z
+	EX	DE,HL
+	ADD	HL,BC
+	LD	L,(HL)
+	LD	H,0
+	RET	
+
+
+	; READ
+	;	Read physical record from currently selected drive.
+	;		Finds address of proper read routine from
+	;		extended disk parameter header (XDPH).
+
+READ:	
+	ld	(loc$stk),SP		;set up local stack
+	ld	SP,loc$stk
+	LD	HL,(@ADRV)
+	LD	H,0
+	ADD	HL,HL			; get drive code and double it
+	LD	DE,@DTBL
+	ADD	HL,DE			; make address of table entry
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; fetch table entry
+	PUSH	HL			; save address of table
+	LD	DE,-8
+	ADD	HL,DE			; point to read routine address
+	JP	RW$COMMON		; use common code
+
+
+	; WRITE
+	;	Write physical sector from currently selected drive.
+	;		Finds address of proper write routine from
+	;		extended disk parameter header (XDPH).
+
+WRITE:	
+	ld	(loc$stk),SP		;set up local stack
+	ld	SP,loc$stk
+	LD	HL,(@ADRV)
+	LD	H,0
+	ADD	HL,HL			; get drive code and double it
+	LD	DE,@DTBL
+	ADD	HL,DE			; make address of table entry
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; fetch table entry
+	PUSH	HL			; save address of table
+	LD	DE,-10
+	ADD	HL,DE			; point to write routine address
+
+RW$COMMON: 
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; get address of routine
+	POP	DE			; recover address of table
+	DEC	DE
+	DEC	DE			; point to relative drive
+	LD	A,(DE)
+	LD	(@RDRV),A		; get relative drive code and post it
+	INC	DE
+	INC	DE			; point to DPH again
+	call	IPCHL			; leap to driver
+	ld	SP,(loc$stk)		;restore stack pointer
+	ret
+
+
+					; error message components
+DRIVE$MSG:
+	DB	CR,LF,BELL,'BIOS Error on ',0
+TRACK$MSG:
+	DB	': T-',0
+SECTOR$MSG:
+	DB	', S-',0
+
+
+					; disk communication data items
+
+@ADRV:	DS	1			; currently selected disk drive
+@RDRV:	DS	1			; controller relative disk drive
+@TRK:	DS	2			; current track number
+@SECT:	DS	2			; current sector number
+@DMA:	DS	2			; current DMA address
+@CNT:	DB	0			; record count for multisector transfer
+@DBNK:	DB	0
+@ermde::
+	db	0			; fake BDOS error mode
+
+endaddr::
+	END	
+

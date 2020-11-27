@@ -1,0 +1,309 @@
+	title	CHARACTER I/O DRIVERS -- CP/M 3.0 -- BANKED / NON-BANKED 
+
+	.z80
+
+	MACLIB	MODEBAUD.LIB
+
+;-----------------
+; BAUD RATE PORTS
+;-----------------
+
+baudd	equ	015h
+baudc	equ	018h
+
+;-------------------
+; SIO CONTROL PORTS
+;-------------------
+
+sioad	equ	000h
+sioac	equ	001h
+siobd	equ	002h
+siobc	equ	003h
+
+;-------------------
+; PIO CONTROL PORTS
+;-------------------
+
+pioad	equ	004h
+pioac	equ	006h
+piobd	equ	005h
+piobc	equ	007h
+
+inbfsz	equ	032d
+
+	cseg
+
+;--------------------------------
+; CHARACTER DEVICE INITALIZATION
+;--------------------------------
+
+cinit?::
+	ld	a,c			; put device no in a-reg for compare
+	cp	2			; check if parallel device
+	ret	z			; no baud for parallel
+	
+	ld	hl,frstint		; check if first time initalization
+	xor	a			; set flag to show already done once
+	cp	(hl)			; frstinit = 0ff if first time
+	jr	z,setbaud		; jump if not first time through
+
+;--------------------------------------
+; SET @CTBL TO ON-BOARD SWITCH SETTING
+;--------------------------------------
+
+initbaud:
+	ld	(hl),a			; set frstinit flag to 0 for next time 
+isioabd:
+	in	a,(baudd)		; read baud switch settings from board
+	and	00fh			; mask for sioa baud rate setting
+	cp	10			; check if board is set for < 2400 baud
+	jr	nc,gt2000		; if < 2400 then need to adjust for tbl
+	inc	a			; cp/m 3 does not support baud 2000
+gt2000:
+	ld	(@ctbl+7),a		; save it in character device table 
+isiobbd:
+	in	a,(baudd)		; read baud switch settings
+	and	070h			; only 3-bits for sio b baud rate
+	srl	a			; right justify nibble
+	srl	a			; 3 bits means switch setting is 0-7 
+	srl	a			; cp/m 3 supports baud settings 1-15
+	srl	a			; finish justification
+	inc	a			; adjust switch setting for cp/m
+	ld	(@ctbl+15),a		; save baud rate in dev 1 baud entry
+	
+	ret
+	
+;----------------------------------
+; SET BAUD RATE TO @CTBL SETTING
+;----------------------------------
+
+setbaud:
+	ld	a,(@ctbl+7)		; second or more times through
+	cp	10			; 
+	jr	nc,gt2000a		; 
+	dec	a			; 
+gt2000a:
+	ld	c,a			; 
+	ld	a,(@ctbl+15)		; set baud according to values in tbl
+	sla	a			; left justity baud rate for device 1 
+	sla	a			; dev 1 maps to sio ch b
+	sla	a			; dev 1 baud setting for port is b7-4
+	sla	a			; must set both at once so dont clobber
+	cp	10			; 
+	jr	nc,gt2000b		; 
+	dec	a			; 
+gt2000b:
+	or	c			; or in dev 0 baud setting
+	out	(baudc),a		; send dev 0,1 baud to baud ctrl port
+
+	ret
+
+	cseg
+
+;------------------------
+; CHARACTER DEVICE INPUT
+;------------------------
+
+ci?::
+	ld	a,b			; put dev. no. in a-reg
+	cp	2			; check if dev. 0 or 1
+	jr	c,ciwait		; jump if dev. no. 0 or 1
+
+	ld	a,01ah			; return ctrl-z if bad input dev.
+	ret
+
+ciwait:
+	call	cist?			; get device input status
+	jr	z,ciwait		; sets zero flag if no RxCA 
+
+	ld	a,b			; put device no. in a
+	and	a			; check if device 0 or 1
+
+	jr	nz,siobin		; jump if device 1.
+
+sioain:
+	di				; no interupts while using bf ptrs
+
+	ld	de,(outptri)		; d-reg  = inptri,  e-reg = outptri
+	ld	d,0			; de-reg = outptri, ofset to nx chr out
+	lä	hl,inpbuf		; get base addr of console i/o buffer
+	add	hl,de			; add offset of nx chr out to bf addr
+
+	ld	a,e			; put outptri into a-reg  
+	inc	a			; inc to next chr to send 
+	and	inbfsz-1		; mask offset for wrap around
+	ld	(outptri),a		; save offset for next time around
+
+	ld	a,(hl)			; pass cp/m char in a-reg
+	ei				; interupts ok now
+	ret
+
+siobin:
+	in	a,(siobd)		; pull char fm sio ch. b bf to a-reg
+	and	07fh			; mask parity off
+	ret
+
+;-------------------------
+; CHARACTER DEVICE OUTPUT
+;-------------------------
+
+co?::
+	ld	D,C			; save character to output 
+cowait:
+	call	cost?			; get out rdy / busy status of device
+	and	a			; set zero flag on value returned
+	jr	z,cowait		; loop until device ready
+
+	ld	a,b			; put device no. in a-reg
+	cp	2			; check if parallel printer
+	jr	z,lstout		; jump to printer out w. char in d-reg
+
+sioout:
+	add	a,a			; double device no. so it is 0 or 2
+	ld	c,a			; this is the sio data port we want
+	out	(c),d			; send character
+
+	ret
+
+lstout:
+	ld	a,d			; put char to send into a-reg
+	out	(pioad),a		; send char to pio ch. a data port 
+
+	ld	a,080h			; set strobe high, then low
+	out	(piobd),a		; strobe printer via pio ch. b
+	xor	a			; set strobe low to latch data
+	out	(piobd),a		; pio latches on strobe's falling edge
+
+	ret
+
+;-------------------------------
+; CHARACTER DEVICE INPUT STATUS
+;-------------------------------
+
+cist?::	
+	ld	a,b			; put device no in a-reg 
+	cp	1			; check if 0,1 or 2
+	jr	c,sioaist		; jump if dev.0 to sio ch. a status
+	jr	z,siobist		; jump if dev.1 to sio ch. b status 
+
+pioist:
+	xor	a			; ret if par dev or bad dev (no in. st)
+	ret
+
+sioaist:
+	ld	hl,(outptri)		; h-reg = inptri, l-reg = outptri  
+	ld	a,h			; intptri is bf offset to nx chr in
+	sub	l			; outptri is bf offset to nx chr out
+	ret	z			; if intptri = outptri then no chr
+
+	ld	a,0ffh			; let cp/m know char available
+	ret
+
+siobist:
+	in	a,(siobc)		; poll sio ch. b for char available
+	and	1			; get stat and check RxCA
+	ret	z			; return if no character available
+
+	ld	a,0ffh			; let cp/m know char available
+	ret
+
+;--------------------------------
+; CHARACTER DEVICE OUTPUT STATUS
+;--------------------------------
+
+cost?::
+	ld	A,B			; move relative device no. to a-reg 
+	cp	2			; check if parallel printer
+	jr	nz,sioost		; jump to serial status if not parallel
+
+lstost:
+	in	A,(piobd)		; get pio status
+	and	1			; busy = 0, not busy = 1
+	ret	z			; if prn busy,  return with a-reg = 0
+	lä	A,0ffh			; prn not busy, return with a-reg = 0ff
+	ret	
+
+sioost:
+	add	a,a			; double dev. no to 0 or 2
+	inc	a			; increment dev no. to 1 or 3
+	ld	c,a			; this is the sio control port
+
+	ld	a,010h			; send reset ext/status intr to wr0
+	out	(c),a			; must do reset if DCD to be valid 
+
+	in	a,(c)			; get sio staus
+	and	004h			; check TxBE
+	cp	004h			; set z-flg if TxBE
+	ld	a,0ffh			; prepare for return w. ok to send flg
+	ret	z			; return if sio ready w. a-reg = 0ffh
+	cpl				; else sio not ready, return 0
+	ret
+
+;------------------------------------
+; SIO CH. A INTERUPT SERVICE ROUTINE 
+;------------------------------------
+
+sioasvc::
+	ld	(ssp##),sp		; save system stack pointer
+	ld	sp,istk##		; user interupt stack
+	call	save##			; save registers af,bc,de,hl
+
+	ld	hl,(outptri)		; h = inptri, l = outptri
+	ld	a,h			; put offset to nx bf in in a-reg
+	inc	a
+	and	inbfsz-1
+	cp	l			; chk if nx in = nx out
+	jò	nz,rxchr		; jump iæ rooí foò more
+
+ciobo:
+	in	a,(sioad)		; cio buffer overflow, clear input port
+	xor	a			; clear channel no.
+
+	ld	c,007h			; ascii char code for ctrl-g (bell)
+	call	co?			; send bell to sio ch. a
+	ret				; return to --> return from interupt
+
+rxchr:
+	ld	(inptri),a
+
+	ld	e,h			; put inptri into e-reg 
+	ld	d,0			; zero d-reg for double add
+	ld	hl,inpbuf		; get base addr of bf
+	add	hl,de			; point nx available addr in bf
+
+	in	a,(sioad)		; get input char from sio
+	and	07fh			; mask out parity
+	ld	(hl),a			; save char in cio buffer
+
+	ret
+	
+;--------------
+; DATA STORAGE
+;--------------
+
+frstint:db	0ffh
+outptri:db	0			; bf offset to next char out to cp/m
+inptri:	db	0			; bf offset to next char in from sio
+inpbuf:	ds	inbfsz			; console i/o buffer
+
+;----------------------------
+; CHARACTER I/O DEVICE TABLE
+;----------------------------
+
+@CTBL::
+	db	'CRT   '
+	db	mb$in$out+mb$serial+mb$soft$baud
+	db	baud$none	
+
+	db	'SERLPT'	
+	db	mb$in$out+mb$serial+mb$soft$baud
+	db	baud$none
+
+	db	'PARLPT'
+	db	mb$output
+	db	baud$none
+	db	0
+
+
+	end
+

@@ -1,0 +1,952 @@
+ 	.xlist
+
+false		equ	0
+true		equ	not false
+
+;;---------------
+;; DRIVE EQUATES
+;;---------------
+
+nodrive		equ	00fh
+
+loader		equ	0ffh
+
+f548		equ	01f0h
+f596		equ	01f1h
+f8		equ	01f2h
+dma		equ	0200h
+st503		equ	0101h
+st506		equ	0102h
+tm601s		equ	0103h
+tm602s		equ	0104h
+tm603s		equ	0105h
+tm603se		equ	0206h
+tm501		equ	0107h
+tm502		equ	0208h
+tm503		equ	0209h
+sa602		equ	010ah
+sa604		equ	010bh
+sa606		equ	010ch
+sa1002		equ	010dh
+sa1004		equ	010eh
+q2010		equ	010fh
+q2020		equ	0210h
+q2030		equ	0311h
+q2040		equ	0412h
+m4010		equ	0113h
+m4020		equ	0214h
+
+frst8		defl	0ffffh
+frst548		defl	0ffffh
+frst596		defl	0ffffh
+ldflg		defl	false
+
+;;------------------------------------
+;; MACRO - DISK PARAMETER DEFINITIONS
+;;------------------------------------
+
+dskdef	macro	drvstr
+
+	.lall
+;------------------
+; SYSTEM DRIVE MAP 
+;------------------
+
+	dseg
+
+	.xall
+
+hpdno	defl	0
+fpdno	defl	0
+dno	defl	0				;; logical drv no. of our drvs
+cnt	defl	0				;; cnt of how many entrys made
+
+@dtbl::
+	irp drvtyp,<drvstr>
+
+	if	 drvtyp eq nodrive
+	dw	0
+	else
+
+	repô	(drvtyð shò 8©			;» enteò logicaì drvó intï dmap
+	drvmap	%dno
+dno	defl	dno+1
+cnt	defl	cnt+1
+	endm
+
+	endif
+	endm
+
+	rept (010h-cnt)			;; fill in rest of drive map
+	dw	0
+	endm
+
+	.lall
+;---------------------
+; DISK DEBLOCKING MAP
+;---------------------
+
+	dseg
+
+	.xall
+
+hpdno	defl	0
+fpdno	defl	0
+dno	defl	0				;; logical drv no. of our drvs
+cnt	defl	0				;; cnt of how many entrys made
+
+ddbtbl::
+	irp drvtyp,<drvstr>
+
+	if	 drvtyp eq nodrive
+	dw	0
+	else
+
+	repô	(drvtyð shò 8©			;» enteò logicaì drvó intï dmap
+	debmap	%dno,drvtyp
+dno	defl	dno+1
+cnt	defl	cnt+1
+	endm
+
+	endif
+	endm
+
+	rept (010h-cnt)			;; fill in rest of drive map
+	dw	0
+	endm
+
+;;----------------------------
+;; DISK DRIVE DATA STRUCTURES
+;;----------------------------
+
+dno	defl	0
+hpdno	defl	0
+fpdno	defl	0
+
+	irp 	drvtyp,<drvstr>
+
+	if	drvtyp	eq loader
+ldflg	defl	true
+	endif
+
+;;--------------------------------
+;; 5.25" 48-TPI FLOPPY DISK DRIVE
+;;--------------------------------
+
+	if	drvtyp eq f548
+
+	xdph	%dno,%fpdno,drvtyp
+
+	if	frst548 eq 0ffffh
+
+	cseg
+
+fdpb548::
+
+;;-----------------------------------------------------
+;; 	XEROX 820, KAYPRO II SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	dpb	%10h,18,3,7,0,81,32,16,3,0,0,1024
+;;
+;;-----------------------------------------------------
+;; 	OSBORNE SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	dpb	%10h,18,4,15,1,40,32,16,3,1,1,2048
+;;
+;;-----------------------------------------------------
+
+	dpb	%10h,18,3,07,0,081,032,16,3,1,1,1024
+	dpb	%11h,32,4,15,0,077,063,32,1,3,7,2048
+	dpb	%12h,64,4,15,0,155,127,32,1,3,7,2048
+
+	dseg
+
+fddb548::
+
+;;-----------------------------------------------------
+;; XEROX 820, KAYPRO II SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	ddb	%10h,0,0,128,64
+;;
+;;-----------------------------------------------------
+;;	OSBORNE SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	ddb	%10h,%fpdno,0,0,256,64
+;;
+;;-----------------------------------------------------
+
+
+	ddb	%10h,0,0,128,64
+	ddb	%11h,0,0,1024,4
+	ddb	%12h,0,0,1024,4
+
+tran548::
+
+;;-----------------------------------------------------
+;; 	XEROX 820, KAYPRO II SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	db	1,6,11,16,3,8,13,18,5
+;;	db	10,15,2,7,12,17,4,9,14
+;;	ds	8,0ffh
+;;
+;;-----------------------------------------------------	
+;;	OSBORNE SINGLE DENSITY FORMAT
+;;-----------------------------------------------------
+;;
+;;	db	2,3,6,7,10,11,14,15,18,19
+;;	db	4,5,8,9,12,13,16,17
+;;	ds	8,0ffh
+;;
+;;-----------------------------------------------------
+
+	db	1,6,11,16,3,8,13,18,5
+	db	10,15,2,7,12,17,4,9,14
+	ds	8,0ffh
+
+frst548	defl	0
+	endif
+
+dno	defl	dno+1
+
+	endif
+
+;;--------------------------------
+;; 5.25" 96-TPI FLOPPY DISK DRIVE
+;;--------------------------------
+
+	if	drvtyp eq f596
+
+	xdph	%dno,%fpdno,drvtyp
+
+	if	frst596 eq 0ffffh
+	
+	cseg
+
+fdpb596::
+	dpb	%20h,18,3,07,0,082,063,16,3,0,0,1024
+	dpb	%21h,32,4,15,0,150,063,32,1,3,7,2048
+	dpb	%22h,64,4,15,0,300,127,32,1,3,7,2048
+
+	dseg
+
+fddb596::
+	ddb	%20h,0,0,128,32
+	ddb	%21h,0,0,1024,4
+	ddb	%22h,0,0,1024,4
+tran596::
+	db	1,7,13,19,25,5,11,17,23,3,9,15,21
+	db	2,8,14,20,26,6,12,18,24,4,10,16,22
+	
+frst596	defl	0
+	endif
+
+dno	defl	dno+1
+
+	endif
+
+;;----------------------
+;; 8" FLOPPY DISK DRIVE
+;;----------------------
+
+	if	drvtyp eq f8
+
+	xdph	%dno,%fpdno,drvtyp
+
+	if	frst8 eq 0ffffh
+
+	cseg
+
+fdpb8::
+	dpb	%30h,026,3,07,0,242,063,16,2,0,0,1024
+	dpb	%31h,064,4,15,0,303,127,32,1,3,7,2048
+	dpb	%32h,128,4,15,0,607,255,64,1,3,7,2048
+
+	dseg
+
+fddb8::
+	ddb	%30h,0,0,128,32
+	ddb	%31h,0,0,1024,8 
+	ddb	%32h,0,0,1024,8
+tran8::
+	db	1,7,13,19,25,5,11,17,23,3,9,15,21
+	db	2,8,14,20,26,6,12,18,24,4,10,16,22
+	
+frst8	defl	0
+	endif
+
+dno	defl	dno+1
+
+	endif
+
+;;--------------------------------
+;; DMA MICRO MAGNUM 5/5 HARD DISK
+;;--------------------------------
+
+	if	drvtyp eq dma 
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,128,5,31,1,1219,511,08000h,1,1,1,4096
+	dpb	%dno+1,128,5,31,1,1223,511,08000h,0,1,1,4096
+	ddb	%dno+0,0,15,256,32
+	ddb	%dno+1,2,15,256,32
+dno	defl	dno+2
+	endif
+
+;;------------------
+;; ST 503 HARD DISK
+;;------------------
+
+	if	drvtyp eq st503 
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,607,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif	
+
+;;------------------
+;; ST 506 HARD DISK
+;;------------------
+
+	if	drvtyp eq st506
+	xdph	%dno,%hpdno
+	dpb	%dno+0,256,5,31,1,1215,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif	
+
+;;-------------------
+;; TM 601S HARD DISK
+;;-------------------
+
+	if	drvtyp eq tm601S
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,607,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif	
+
+;;-------------------
+;; TM 602S HARD DISK
+;;-------------------
+
+	if	drvtyp eq tm602S
+	xdph	%dno,%hpdno
+	dpb	%dno+0,256,5,31,1,1215,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif	
+
+;;-------------------
+;; TM 603S HARD DISK
+;;-------------------
+
+	if	drvtyp eq tm603S
+	xdph	%dno,%hpdno
+	dpb	%dno+0,384,5,31,1,1823,1023,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif
+
+;;--------------------
+;; TM 603SE HARD DISK
+;;--------------------
+
+	if	drvtyp eq tm603SE
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,384,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,384,5,31,1,699,511,08000h,172,2,3,4096
+	ddb	%dno+0,0,0,512,16
+	ddb	%dno+1,0,0,512,16
+dno	defl	dno+2
+	endif
+
+;;------------------
+;; TM 501 HARD DISK
+;;------------------
+
+	if	drvtyp eq tm501
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,1219,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,3,512,16
+dno	defl	dno+1
+	endif
+
+;;------------------
+;; TM 502 HARD DISK
+;;------------------
+
+	if	drvtyp eq tm502
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,256,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,256,5,31,1,391,511,08000h,257,2,3,4096
+	ddb	%dno+0,0,0,512,16 
+	ddb	%dno+1,0,0,512,16
+dno	defl	dno+2
+	endif
+
+;;------------------
+;; TM 503 HARD DISK
+;;------------------
+
+	if	drvtyp eq tm503
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,384,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,384,5,31,1,1611,1023,08000h,172,2,3,4096
+	ddb	%dno+0,0,3,512,16
+	ddb	%dno+1,0,3,512,16
+dno	defl	dno+2
+	endif
+
+;;------------------
+;; SA 602 HARD DISK
+;;------------------
+
+	if	drvtyp eq sa602
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,635,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,3,512,16
+dno	defl	dno+1
+	endif
+
+;;------------------
+;; SA 604 HARD DISK
+;;------------------
+
+	if	drvtyp eq sa604
+	xdph	%dno,%hpdno
+	dpb	%dno+0,256,5,31,1,1271,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,3,512,16
+dno	defl	dno+1
+	endif
+
+;;------------------
+;; SA 606 HARD DISK
+;;------------------
+
+	if	drvtyp eq sa606
+	xdph	%dno,%hpdno
+	dpb	%dno+0,384,5,31,1,1907,1023,08000h,1,2,3,4096
+	ddb	%dno+0,0,3,512,16
+dno	defl	dno+1
+	endif
+
+;;-------------------
+;; SA 1002 HARD DISK
+;;-------------------
+
+	if	drvtyp eq sa1002
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,1019,511,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif
+
+;;-------------------
+;; SA 1004 HARD DISK
+;;-------------------
+
+	if	drvtyp eq sa1004
+	xdph	%dno,%hpdno
+	dpb	%dno+0,256,5,31,1,2039,1023,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif
+
+;;------------------------
+;; QUANTUM 2010 HARD DISK
+;;------------------------
+
+	if	drvtyp eq q2010
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,2043,1023,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif
+
+;;------------------------
+;; QUANTUM 2020 HARD DISK
+;;------------------------
+
+	if	drvtyp eq q2020
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,256,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,256,5,31,1,2039,1023,08000h,257,2,3,4096
+	ddb	%dno+0,0,0,512,16
+	ddb	%dno+1,0,0,512,16
+dno	defl	dno+2
+	endif
+
+;;------------------------
+;; QUANTUM 2030 HARD DISK
+;;------------------------
+
+	if	drvtyp eq q2030
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	xdph	%dno+2,%hpdno
+	dpb	%dno+0,384,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,384,5,31,1,2047,1023,08000h,172,2,3,4096
+	dpb	%dno+2,384,5,31,1,2031,1023,08000h,343,2,3,4096
+	ddb	%dno+0,0,0,512,16
+	ddb	%dno+1,0,0,512,16
+	ddb	%dno+2,0,0,512,16
+dno	defl	dno+3
+	endif
+
+;;------------------------
+;; QUANTUM 2040 HARD DISK
+;;------------------------
+
+	if	drvtyp eq q2040
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	xdph	%dno+2,%hpdno
+	xdph	%dno+3,%hpdno
+	dpb	%dno+0,512,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,512,5,31,1,2047,1023,08000h,129,2,3,4096
+	dpb	%dno+2,512,5,31,1,2047,1023,08000h,257,2,3,4096
+	dpb	%dno+3,512,5,31,1,2031,1023,08000h,385,2,3,4096
+	ddb	%dno+0,0,0,512,16
+	ddb	%dno+1,0,0,512,16
+	ddb	%dno+2,0,0,512,16
+	ddb	%dno+3,0,0,512,16
+dno	defl	dno+4
+	endif
+
+;;---------------------------
+;; MINISCRIBE 4010 HARD DISK
+;;---------------------------
+
+	if	drvtyp eq m4010
+	xdph	%dno,%hpdno
+	dpb	%dno+0,128,5,31,1,1915,1023,08000h,1,2,3,4096
+	ddb	%dno+0,0,0,512,16
+dno	defl	dno+1
+	endif
+
+;;---------------------------
+;; MINISCRIBE 4020 HARD DISK
+;;---------------------------
+
+	if	drvtyp eq m4020
+	xdph	%dno,%hpdno
+	xdph	%dno+1,%hpdno
+	dpb	%dno+0,256,5,31,1,2047,1023,08000h,1,2,3,4096
+	dpb	%dno+1,256,5,31,1,1783,1023,08000h,257,2,3,4096
+	ddb	%dno+0,0,0,512,16
+	ddb	%dno+1,0,0,512,16
+dno	defl	dno+2
+	endif
+
+	if	(drvtyp eq f8) or (drvtyp eq f548) or (drvtyp eq f596)
+fpdno	defl	fpdno+1 	
+	else
+	if	drvtyp gt 15
+hpdno	defl	hpdno+1
+	endif
+	endif
+
+	endm
+
+	if	frst8 eq 0ffffh
+fdpb8::					; no 8" floppy used but need label
+fddb8::					; no 8" floppy used but need label
+tran8::					; no 8" floppy used but need label
+	endif
+
+	if	frst548 eq 0ffffh
+fdpb548::				; no 5"-48 tpi drv used but need label
+fddb548::				; no 5"-48 tpi drv used but need label
+tran548::				; no 5"-48 tpi drv used but need label
+	endif	
+
+	if	frst596 eq 0ffffh
+fdpb596::				; no 5"-96 tpi drv used but need label
+fddb596::				; no 5"-96 tpi drv used but need label
+tran596::				; no 5"=96 tpi drv used but need label
+	endif
+
+	endm
+
+;;-------------------
+;; MACRO - DRIVE MAP
+;;-------------------
+
+drvmap	macro	dn
+	dw	xdph&dn
+	endm
+
+;;------------------------
+;; MACRO - DEBLOCKING MAP
+;;------------------------
+
+debmap	macro	dn,drvtyp
+
+	if	drvtyp eq f548
+	dw	ddb&16
+	else
+
+	if	drvtyp eq f596
+	dw	ddb&32
+	else
+
+	if	drvtyp eq f8
+	dw	ddb&48
+	else
+
+	dw	ddb&dn
+
+	endif
+	endif
+	endif
+
+	endm
+
+;;----------------------------------------
+;; MACRO - EXTENDED DISK PARAMETER HEADER
+;;----------------------------------------
+
+xdph	macro	dn,pdno,dtyp
+
+	.lall
+;-------------------
+; DISK HEADER BLOCK
+;-------------------
+
+	dseg
+
+	.xall	
+	
+     	ifb <dtyp>
+
+	dw	hwrite##		; hard write sector entry point
+	dw	hread##			; hard read sector entry point 
+	dw	hlogin##		; hard login entry point
+	dw	hinit##			; hard initalization entry point
+
+	else	
+
+	dw	fwrite##		; floppy write sector entry point
+	dw	fread##			; floppy read sector entry point 
+	dw	flogin##		; floppy login entry point
+	dw	finit##			; floppy initilazition entry point
+
+	endif
+
+	db	pdno			; unit
+
+	ifb	<dtyp>
+xdn	defl	dn
+	db	0			; type = hard disk
+	else
+	if	dtyp eq	f548
+xdn	defl	12h
+	db	1			; type = 5.25" 48 tpi floppy disk
+	else
+	if	dtyp eq f596
+xdn	defl	22h
+	db	2			; type = 5.25" 96 tpi floppy disk
+	else
+xdn	defl	32h
+	db	3			; type = 8" floppy disk 
+	endif
+	endif
+	endif
+
+xdph&dn::
+	dw	0000			; translation vector
+	dw	0000			; scratch pad
+	dw	0000			; scratch pad
+	dw	0000			; scratch pad
+	dw	0000			; scratch pad
+	db	0			; scratch pad
+	db	0ffh			; media flag
+
+	if	ldflg eq true
+	genlbl	%xdn			;; generate loader labels 
+	else
+	genlb	%xdn			;; generate gencpm labels
+	endif
+
+	endm
+
+;;------------------------------
+;; MACRO - DISK PARAMETER BLOCK
+;;------------------------------
+
+dpb	macro 	dn,spt,bsh,blm,exm,dsm,drm,cks,off,psh,psm,bsiz
+
+	.lall
+;----------------------
+; DISK PARAMETER BLOCK
+;----------------------
+
+	cseg
+
+	.xall
+
+dpb&dn::
+	dw	spt			; cpm sectors per track
+	db	bsh			; block shift factor
+	db	blm			; block mask
+	db	exm			; extent mask
+	dw	dsm			; no. blocks on drive
+	dw	drm			; no. directory entrys
+	rsvdir	dn,drm,bsiz		;;reserved directory blocks 
+	dw	cks			; no. directory entries to check
+	dw	off			; track offset
+	db	psh			; physical sector shift
+	db	psm			; physical sector mask
+
+	if (dn eq 10h) or (dn eq 11h)
+	exitm
+	else
+
+	if (dn eq 20h) or (dn eq 21h)
+	exitm
+	else
+
+	if (dn eq 30h) or (dn eq 31h)
+	exitm
+	else
+
+	if ldflg eq true
+	
+	rcbdcb	dn
+	alvcsv	dn,dsm,drm
+
+	endif
+	endif
+	endif
+	endif
+
+	endm
+	
+;;-------------------------------
+;; MACRO - DISK DEBLOCKING BLOCK
+;;-------------------------------
+
+ddb	macro	dn,hdoff,srate,hsiz,hsspt
+
+	.lall
+;-----------------------
+; DISK DEBLOCKING BLOCK
+;-----------------------
+
+	dseg
+
+	.xall
+
+ddb&dn::
+	dw	hsiz			; host sec size
+	ssiz	hsiz			;;sdh register sector size
+	db	hdoff			; head offset (for partioning by hds)
+	db	srate			; cmd register step rate
+	db	hsspt-1			; host sec per trk - 1 (hst sec msk)
+	shff	hsspt			;;calc log2 spt 
+
+	endm
+
+;;------------------------
+;; MACRO - GENERATE BCB'S
+;;------------------------
+
+rcbdcb	macro	dn
+
+	.lall
+;-------------------------
+; DIRECTORY CONTROL BLOCK
+;-------------------------
+
+	dseg
+
+rcb&dn::
+	db	0ffh			; drive 
+	db	0,0,0			; record no.
+	db	0			; write flag
+	db	0			; scratch byte
+	dw	0			; track no.
+	dw	0			; sector no.
+	dw	rcbbf&dn		; buffer address
+	db	0			; bank no.
+	dw	0			; link address		
+
+;--------------------
+; DATA CONTROL BLOCK
+;--------------------
+
+dcb&dn::
+	db	0ffh			; drive 
+	db	0,0,0			; record no.
+	db	0			; write flag
+	db	0			; scratch byte
+	dw	0			; track no.
+	dw	0			; sector no.
+	dw	dcbbf&dn		; buffer address
+	db	0			; bank no.
+	dw	0			; link address		
+
+;------------------
+; DIRECTORY BUFFER
+;------------------
+
+rcbbf&dn:
+	ds	1024
+
+;-------------
+; DATA BUFFER
+;-------------
+
+dcbbf&dn:
+	ds	1024
+
+	.xall
+	
+	endm
+
+;;-------------------------------------
+;; MACRO - GENERATE LABELS USED IN DPH 
+;;-------------------------------------
+
+genlbl	macro	dn
+
+	dw	dpb&dn			; loader drive disk parameter block
+	dw	csv&dn			; loader drive check sum vector 
+	dw	alv&dn			; loader drive allocation vector
+	dw	rcb&dn			; loader drive directory control block
+	dw	dcb&dn			; loader drive data control block
+	dw	0ffffh			; disable hashing
+	db	0			; hash bank
+
+	endm
+
+genlb	macro	dn
+
+	dw	dpb&dn
+	dw	0fffeh			; check sum vector
+	dw	0fffeh			; disk allocation vector
+	dw	0fffeh			; directory buffer control block
+	dw	0fffeh			; data buffer control block
+	dw	0fffeh			; directory hash table
+	db	0			; hash bank
+
+	endm
+
+;;----------------------------------
+;; MACRO - GENERATE ALV,CSV VECTORS
+;;----------------------------------
+
+alvcsv	macro	dn,dsm,drm
+
+alv&dn:	ds	(dsm/4)+2
+csv&dn:	ds	(drm/4)+1
+
+	endm
+
+;;--------------------------------------
+;; MACRO - COMPUTE NO. DIRECTORY BLOCKS
+;;--------------------------------------
+
+rsvdir	macro	dn,drm,bsiz
+
+x	defl	((drm+1)/(bsiz/32))
+y	defl	080h
+done	defl	0
+al0&dn	defl	0
+al1&dn	defl	0
+
+	rept	8
+	if	x eq 0
+	db	al0&dn			; directory block allocation 0
+	db	al1&dn			; directory block allocation 1
+done	defl	0ffh
+	exitm
+	endif
+
+al0&dn	defl	al0&dn or y
+y	defl	y shr 1
+x	defl	x-1
+	endm
+
+y	defl	080h
+
+	if	done eq 0
+	rept	8
+	if	x eq 0
+	db	al0&dn			; directory block allocation 0
+	db	al1&dn			; directory block allocation 1
+done	defl	0ffh
+	exitm
+	endif
+
+al1&dn	defl	al1&dn or y
+y	defl	y shr 1
+x	defl	x-1
+	endm
+	endif
+
+	if	done eq 0
+	db	al0&dn			; directory block allocation 0
+	db	al1&dn			; directory block allocation 1
+	endif
+
+	endm
+	
+;;-----------------------------------
+;; MACRO - COMPUTE DRIVE SECTOR SIZE
+;;-----------------------------------
+
+ssiz	macro	secsiz
+
+	if	secsiz eq 128
+	db	060h			; sdh reg sec siz 060 = 128 bps
+	else
+
+	if	secsiz eq 512
+	db	020h			; sdh reg sec siz 020 = 512 bps
+	else
+
+	if	secsiz eq 256
+	db	000h			; sdh reg sec siz 000 = 256 bps
+	else
+
+	db	000h
+
+	endif
+	endif
+	endif
+
+
+	endm
+
+;;------------------------------
+;; MACRO - COMPUTE SHIFT FACTOR
+;;------------------------------
+
+shff	macro	num			 
+
+@y	defl	num
+@x	defl	0
+
+	rept	8
+	if	@y eq 1
+	db	@x			; log2 (num)
+	exitm
+	endif
+@y	defl	@y shr 1
+@x	defl	@x + 1
+	endm
+
+	endm
+
+	.list
+

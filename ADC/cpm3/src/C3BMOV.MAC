@@ -1,0 +1,135 @@
+	title	BANK MOVE MODULE -- CP/M 3.0
+
+	.z80
+
+;------------------------------------------------------------------------------
+;
+;	  Super Six			  CP/M 3.0
+;
+;	BNK	  ADDR			BNK	  ADDR
+;	-----------------		-----------------
+;
+;	0	0000-3FFF    --->	0	0000-3FFF
+;	0	4000-7FFF    --->	0	4000-7FFF
+;	0	8000-BFFF    --->	0	8000-BFFF
+;	0	C000-FFFF    --->	0-1	C000-FFFF (COMMON)
+;
+;	1	0000-3FFF    --->	1	0000-3FFF
+;	1	4000-7FFF    --->	1	4000-7FFF
+;	1	8000-BFFF    --->	1	8000-BFFF
+;	1	C000-FFFF    --->	2	0000-3FFF (OVERLAY)
+;
+;------------------------------------------------------------------------------
+
+;----------------------
+; MEMORY CONTROL PORTS
+;----------------------
+
+bnk0	equ	016h			; memory control port 0
+bnk1	equ	017h			; memory control port 1
+
+;--------------------------------------------
+; MEMORY MOVE MODULE RESIDE IN COMMON MEMORY
+;--------------------------------------------
+
+	cseg
+
+;------------------------
+; SET UP INTER-BANK MOVE
+;------------------------
+
+xmove?::	
+	ld	(banks),bc		; save source and dest bnks
+	ret	
+
+;----------------------
+; MOVE BLOCK OF MEMORY
+;----------------------
+
+move?::	
+	ld	a,(banks)		; check if inter bank moved needed
+	inc	a			; if no inter bnk mov, this sets z-flg
+	jp	nz,xmovit		; jmp if inter bnk mov 
+
+;-----------------
+; INTRA BANK MOVE
+;-----------------
+
+movit:
+	ex	de,hl			; no inter bank move, do simp blk mov
+	ldir				; BDOS passes ldir args reversed
+	ex	de,hl			; return args to BDOS 
+	ret
+
+;-----------------
+; INTER BANK MOVE
+;-----------------
+
+xmovit:
+	ex	de,hl			; put source in hl, destinatin in de
+
+	ld	a,(sbnk)		; set up to bank in source bank
+	call	bank?			; do physical bank select
+
+	push	de			; save destination
+	push	bc			; save count
+	ld	de,(@bnkbf##)		; get bank buf addr from scb
+	ldir				; mov 080h byt into buffer
+	pop	bc			; restore count 
+	pop	de			; restore dest addr
+
+	push	hl			; save ptr to next source byte
+
+	ld	a,(dbnk)		; set up to bank in dest bank
+	call	bank?			; bank in destination bank
+
+	ld	hl,(@bnkbf##)		; siz of bnkbf is 080h bytes
+	ldir				; blk mov bank buffer to dest addr
+
+	ld	bc,0ffffh		; re-set xmove flag
+	ld	(banks),bc		; this really sets dbnk = sbnk = 0ffh 
+
+	ex	de,hl			; put next destination in hl-reg 
+	pop	de			; put next source      in de-reg
+
+	ld	a,(@cbnk##)
+	call	bank?
+
+	ret	
+
+;----------------------
+; SELECT PHYSICAL BANK
+;----------------------
+
+bank?::
+	cp	1
+	jr	z,selbnk1		; jump if bnk 1
+	jr	nc,selbnk2
+selbnk0:
+	out	(bnk1),a		; disable bank 1 by sending a zero
+	ld	a,0efh			; prom dis, power on jmp, parity ena
+	out	(bnk0),a		; bank in bnk 0
+	ret
+selbnk1:
+	ld	a,0e8h			; keep common mem banked in
+	out	(bnk0),a		; bank out every thing except c000-ffff
+	ld	a,007h			; bank in 0-dfff of bank 1
+	out	(bnk1),a		; now in second bank w. common
+	ret
+selbnk2:
+	ld	a,0e8h			; keep common selected
+	out	(bnk0),a		; deselect lower 16k banks
+	lä	a,018h			; use map 1 for overlay
+	out	(bnk1),a		; now, c000-ffff --> 0-3fff
+	ret
+
+;--------------
+; DATA STORAGE
+;--------------
+
+banks:
+sbnk:	db	0			; destination bank in inter-bank move
+dbnk:	db	0			; source bank in inter-bank move
+
+	end
+

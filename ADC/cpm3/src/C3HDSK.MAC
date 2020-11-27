@@ -1,0 +1,211 @@
+	title	HARD DISK DRIVER -- CP/M 3.0 -- BANKED / NON-BANKED
+
+ 	.z80				; Zilog mneumonics used
+
+;------------------------------------
+; HDC-1001 CONTROLLER PORT ADDRESSES
+;------------------------------------
+
+hbase	equ	0e0h			; base port address of hdc-1001
+hdata	equ	hbase+0			; data register
+herror	equ	hbase+1			; error register
+hwrtpre	equ	hbase+1			; write pre-compensation register
+hseccnt	equ	hbase+2			; sector count register
+hsec	equ	hbase+3			; sector number register
+hcyllow	equ	hbase+4			; cylinder low register
+hcylhi	equ	hbase+5			; cylinder high register
+hsdh	equ	hbase+6			; size - drive - head register
+hstatus	equ	hbase+7			; status register port
+hcmd	equ	hbase+7			; command register port
+
+;-------------------
+; HDC-1001 COMMANDS
+;-------------------
+
+cmdsek	equ	070h			; seek command
+cmdrd	equ	020h			; read sector command
+cmdwrt	equ	030h			; write sector command		
+
+;--------------------------------------
+; HDC-1001 STATUS REGISTER BIT TESTERS
+;--------------------------------------
+
+bsybit	equ	080h			; busy bit
+rdybit	equ	040h			; data request bit
+errbit	equ	001h			; error bit	
+
+;-------------------------------
+; DISK DEBLOCKING BLOCK INDEXES
+;-------------------------------
+
+secsizl	equ	000h			; sector size low byte index
+secsizh	equ	001h			; sector size high byte index
+sdh	equ	002h			; sdh register setting index
+hdoff	equ	003h			; head offset index
+stepr	equ	004h			; step rate index
+secmsk	equ	005h			; sector mask index
+hdshf	equ	006h			; head shift index
+
+	dseg
+
+;---------------------
+; INITALIZE HARD DISK
+;---------------------
+
+hinit::
+	ld	hl,ddbtbl##
+	ld	de,(@adrv##)
+	ld	d,0
+	add	hl,de			; add in logical drive index
+	add	hl,de
+
+	ld	e,(hl)			; get low byte of ddb addr
+	inc	hl			; point to high byte of addr
+	ld	d,(hl)			; get high byte of addr
+
+	push	de
+	pop	ix
+
+	ld	a,(@rdrv##)		; unit is really physical drive no
+	sla	a			; rotate it to correct position
+	sla	a			; hdc-1001 expects to see it at 3-4
+	sla	a			; one more time
+	or	(ix+sdh)		; or in sdh reg setting w. pdrv
+	out	(hsdh),a		; send it to controller
+
+	xor	a			; zero a-reg
+	out	(hcyllow),a		; reset cylinder low register
+	out	(hcylhi),a		; reset cylinder high register
+
+	ld	a,cmdsek		; load a-reg w. seek command
+	or	(ix+stepr)		; or in proper step rate
+	out	(hcmd),a		; seek cylinder 000 @ correct step rate
+
+	call 	polbsy			; wait until ctrl done exec seek cmd
+
+	ret
+
+;-----------------
+; LOGIN HARD DISK
+;-----------------
+
+hlogin::
+	ret
+
+;-----------------
+; WRITE HARD DISK
+;-----------------
+
+hwrite::
+	call	hsettsk			; set up hdc1001 ctrler registers
+	call	getdata##
+	call	hwrtsec
+	call	polbsy
+
+	ret
+	
+;----------------
+; READ HARD DISK
+;----------------
+
+hread::
+	call	hsettsk			; first set up controller registers
+	call	hrdsec
+	call	putdata##		;
+	call 	polbsy			; check for errors
+
+	ret
+	
+;--------------------
+; SET TASK HARD DISK
+;--------------------
+
+hsettsk:
+	call	ddbtoix##
+
+	ld	a,1
+	ld	e,(ix+secsizl)
+	ld	d,(ix+secsizh)
+	call	shfl16##
+	ld	a,d
+	ld	(xfercnt##),a
+
+	ld	a,(ix+hdshf)		; load a w. head shift factor
+	ld	de,(@sect##)		; get sector relative to cylinder
+	call	shfr16##		; high 3-bits of sector are head no
+	ld	a,(@rdrv##)		; get physical drive no.
+	sla	a			; rotate phy drive to correct position
+	sla	a			; drive is expected in bits 3 and 4
+	sla	a			; last shift for drive
+	or	e			; or in head no calculated above
+	or	(ix+sdh)		; or it in w. rotated phy drive no
+	add	a,(ix+hdoff)		; add in head offset 
+	out	(hsdh),a		; send it siz drv hd register
+
+	ld	a,(@trk##)		; move lsb to a-reg for out inst
+	out	(hcyllow),a		; send low byte to cyllow reg
+	ld	a,(@trk##+1)		; move msb  to a-reg
+	out	(hcylhi),a		; send to cyl high
+
+	ld	a,(@sect##)		; get host sector no
+	and	(ix+secmsk)		; mask out head no. bits
+	out	(hsec),a		; send to sector register
+
+	ret
+
+;---------------------------
+; WRITE SECTOR TO HARD DISK
+;---------------------------
+
+hwrtsec:
+	ld	a,cmdwrt
+	out	(hcmd),a
+
+	ld	hl,diskbf##
+	ld	b,(ix+secsizl)
+	ld	c,hdata
+	otir
+
+	ld	a,(ix+secsizh)
+	cp	2
+	ret	nz
+
+	otir
+
+	ret
+
+;----------------------------
+; READ SECTOR FROM HARD DISK 
+;----------------------------
+
+hrdsec:
+	ld	a,cmdrd
+	out	(hcmd),a
+	call	polbsy
+
+	ld	hl,diskbf##
+	ld	b,(ix+secsizl)
+	ld	c,hdata
+	inir
+
+	ld	a,(ix+secsizh)
+	cp	2
+	ret	nz
+
+	inir
+
+	ret
+
+;---------------------
+; POLL BUSY HARD DISK
+;---------------------
+
+polbsy:
+	in	a,(hstatus)		; read status port
+	and	a			; set flags
+	jp	m,polbsy		; loop if busy bit set
+	and	errbit			; mask for error bit
+	ret
+
+	end
+

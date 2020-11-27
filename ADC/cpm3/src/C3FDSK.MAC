@@ -1,0 +1,618 @@
+ 	title	FLOPPY DISK DRIVER -- CP/M 3.0 -- BANKED / NON-BANKED
+
+ 	.z80				; M80 z80 code pseudo op
+
+rtrys	equ	05
+
+;----------------------------------
+; FLOPPY CONTROLLER PORT ADDRESSES
+;----------------------------------
+
+fbase	equ	0ch			; base port addr of wd-1793 or wd-2793
+fcmd	equ	fbase+0			; command register
+fstat	equ	fbase+0			; status register
+ftrk	equ	fbase+1			; track register
+fsec	equ	fbase+2			; sector register
+fdata	equ	fbase+3			; data register
+fwait	equ	014h			; wait register
+fdsd	equ	014h			; density - size - drive register
+
+;----------------------------
+; FLOPPY CONTROLLER COMMANDS
+;----------------------------
+
+fstpr	equ	000h			; floppy step rate (0,1,2 or 3)
+
+frst	equ	000h + fstpr		; restore hds
+fsek	equ	01ch + fstpr		; seek track 
+frd	equ	084h			; read sector 
+fwrt	equ	0a4h			; write sector
+
+;-------------------------------
+; FLOPPY CONTROLLER BIT TESTERS
+;-------------------------------
+
+dden	equ	08h			; double density (bit 3)
+sden	equ	00h			; single density (bit 3)
+s5	equ	10h			; 5" floppy      (bit 4)  
+s8	equ	00h			; 8" floppy	 (bit 4)
+s0	equ	00h			; side select 0  (bit 2) 
+s1	equ	04h			; side select 1  (bit 2)
+
+;--------------------------------------
+; FLOPPY DISK DEBLOCKING BLOCK INDEXES
+;--------------------------------------
+
+secsizl	equ	000h
+secsizh	equ	001h
+dsd	equ	002h
+hdoff	equ	003h
+stepr	equ	004h
+secmsk	equ	005h
+hdshf	equ	006h
+
+	dseg
+
+;-------------------------
+; INITALIZE FLOPPY DRIVES
+;-------------------------
+
+finit::
+	ret
+
+;--------------------
+; LOGIN FLOPPY DRIVE
+;--------------------
+
+flogin::
+	ld	(cdph),de
+
+	call	getds			; get fpy drv siz (8-5) & pdrv # (0-3)
+	call	frestore		; restore fpy drv hds
+	jr	nz,flogerr		; ret if drv not rdy for select error
+	
+	call	getden			; get dsk density (sgl-dbl)
+	call	getsd			; get number of sides on dsk (0-1)
+	call	setdpb			; set dpb addr in dph to ind. den & sd
+	call	settran			; set sec trn vec adr in dph if sgl den
+	call	setddb			; set ddb addr in ddbtbl
+
+	call	getdsd
+	ld	a,(cdsd)		; put new dsd reg setting in a-reg
+	ld	(hl),a			; save it as a dsdvec entry
+	ret	
+
+flogerr:
+	pop	hl
+	pop	de
+	ld	de,0
+	jp	(hl)
+
+;-------------------------------------------
+; GET DRV SIZE AND PHY DRV NO. FROM DRV MAP
+;-------------------------------------------
+
+getds:
+	ld	hl,(cdph)		; point to drvtyp in @dtbl
+	dec	hl
+
+	ld	a,(hl)			; put drive type in a-reg
+	cp	2			; if =2 then 5"- 96 tpi fpy drv
+	ld	a,0			; a-reg contains dsd setting
+	jr	c,dsiz548		; if =1 then 5" - 48 tpi fpy drv
+	jr	nz,getpdrv		; if =3 then 8" fpy drv
+dsiz596:
+	set	5,a 			; set bit 5 to indicate 96 tpi
+dsiz548:
+	set	4,a			; set bit 4 to indicate 5" fpy
+getpdrv:
+	dec	hl			; phys drv no. is (xdph-2)
+	or	(hl)			; or in drive size bit setting
+	ld	(cdsd),a		; save it in den - dsiz - dno	 
+	out	(fdsd),a		; set floppy den,dsiz,dno in controller
+
+	ret
+
+;------------------
+; GET DISK DENSITY
+;------------------
+
+getden:
+	call	gettkv
+	ld	a,1			; do sek to trk 1, sgl den 
+	ld	(hl),a			; save trk no. in trk vec
+	call	fseek			; do seek to trk 1
+	ret	z			; return if succesful (dsk is sgl den)
+dbldens:
+	ld	c,dden			; else assume dbl den (saves time)
+	ld	a,(cdsd)		; get dsd reg setting w. sgl den
+	or	c			; or in dbl density setting
+	ld	(cdsd),a		; save it and return
+	ret
+
+;---------------------
+; GET NUMBER OF SIDES
+;---------------------
+
+getsd:
+	ld	a,(cdsd)		; get dsd reg setting as calc so far
+	bit	3,a			; test if single density
+	ret	z			; if bit 3 =0, then sgl den 
+
+	ld	b,s1			; get side 1 mask
+	or	b			; or side mask into dsd reg setting
+	out	(fdsd),a		; send it to the floppy controller
+
+	ld	c,a			; save dsd w. side 1 selected
+
+	call	gettkv
+	ld	a,1
+	ld	(hl),a			; save trk no 1 in trkvec
+	call	fseekntst		; sek w.out rdy tst,(never rdy if 1 sd)
+	ret	nz			; return if error on sek
+
+	ld	a,c			; sek to trk 1, side 1 OK 
+	ld	(cdsd),a		; save dsd ws side 1 sel in dsd setting
+	ret
+
+;----------------
+; SET DPB IN DPH
+;----------------
+
+setdpb:
+	ld	hl,(cdph)
+	ld	de,0ch			; pnt to dpb entry of dph
+	add	hl,de			; dbp addr in dph is 10th entry
+	push	hl			; save addr of dpb address on stk
+tstsiz:	
+	ld	a,(cdsd)		; fetch dsd register setting
+
+	ld	hl,fdpb8##		; ld hl w. dpb base for 8" floppy
+	bit	4,a			; check drv siz bit
+	jr	z,tstden		; jump if 8" drv
+
+	ld	hl,fdpb548##		; ld hl w. dpb base for 5"-48 tpi fpy
+	bit	5,a			; check 96 tpi bit (** not standard **)
+	jr	z,tstden		; jump if 48 tpi drive
+
+	ld	hl,fdpb596##		; ld hl w. dpb base for 5"-96 tpi fpy 
+tstden:
+	bit	3,a			; test density bit of dsd
+	jr	z,movdpb		; sgl den dpb = dpb base 
+setdd:
+	ld	de,17d			; double den, sgl side is next dpb
+	add	hl,de			; index down to next ddb
+tstsid:
+	bit	2,a			; test if double sided
+	jr	z,movdpb		; hl is pointing to dbl den, sgl sd 
+setds:
+	add	hl,de			; dbl den, dbl side is next dpb 
+movdpb:
+	pop	de			; this is where dpb addr goes in dph 
+	ex	de,hl			; de =dpb addr, hl =loc in dph of dpb
+	ld	(hl),e			; save low byte of addr in dph
+	inc	hl			; inc pointer to high byte of addr
+	ld	(hl),d			; save high byte of addr in dph
+	ret
+
+;---------------------------------------
+; SET TRANSLATION VECTOR ADDRESS IN DPH
+;---------------------------------------
+
+settran:
+	ld	hl,(cdph)
+	ld	a,(cdsd)		; get dsd setting
+
+	bit	3,a			; chk denisty bit
+	ld	de,0			; initalize de-reg w. tran vec addr 
+	jr	nz,sett			; jump if double density, (no trn vec)
+
+	ld	de,tran8##		; initalize tran vec addr for 8" tran
+	bit	4,a			; chk drive size bit, =0 for 8", =1 5"
+	jr	z,sett			; jump if 8" drive
+
+	ld	de,tran548##		; init tran vec addr for 5-48tpi sglden
+	bit	5,a			; check bit 5 for 96 tpi drive
+	jr	z,sett			; jump if 48 tpi drive
+
+	ld	de,tran596##		; de gets 5"-96 tpi sgl den tran vec
+sett:
+	ld	(hl),e			; save tran vec addr as #1 entry in dph
+	inc	hl			; vec addr is a word
+	ld	(hl),d			; now store high byte
+	xor	a			; return w. no errors
+	ret
+
+;-------------------
+; SET DDB IN DDBTBL
+;-------------------
+
+setddb:
+	ld	a,(cdsd)		; need this to fig what kind of dsk 
+
+	ld	hl,fddb8##		; init hl for 8" sgl sid, sgl den 
+	bit	4,a			; check bit 4 for siz, 8"=0, 5"=1
+	jr	z,setddd		; jump to density chk if 8" drv 
+
+	ld	hl,fddb548##		; init hl w 5"-48 tpi sgl sid, den
+	bit	5,a			; check bit 5 for tpi, 0=48tpi, 1=96tpi
+	jr	z,setddd		; jump to chk den if 48 tpi
+
+	ld	hl,fddb596##		; set hl w. 5"96tpi ddb addr 
+setddd:
+	bit	3,a			; chk bit 3 for density, 0=sgl 1=dbl  
+	jr	z,mvddb			; jmp if sgl, hl alrdy has addr
+	ld	de,07d			; point to next ddb, (sgl sid, dbl den)
+	add	hl,de			; add in offset to next ddb
+
+	bit	2,a			; chk # sides, 0 =1 side, 1 =2 side
+	jr	z,mvddb			; jump ovr if sgl sided 
+	add	hl,de			; add in offset again for next ddb
+mvddb:	
+	push	hl			; save ddb addr
+
+	ld	hl,ddbtbl##		; destination of ddb addr is in ddbtbl
+	ld	de,(@adrv##)		; ea. entry in tbl is current ddb addr
+	ld	d,0			; zero high byte for dbl add
+	add	hl,de			; hl now has destination address
+	add	hl,de			; table entrys are words
+	pop	de			; restore ddb addr into de-reg
+
+	ld	(hl),e			; hl-reg has ddbtbl addr
+	inc	hl			; pnt to where high byte goes
+	ld	(hl),d			; finish storing ddp addr in ddbtbl
+
+	ld	hl,dsd
+	add	hl,de
+	ld	a,(cdsd)
+	ld	(hl),a
+	
+	ret
+
+;-------------------
+; WRITE FLOPPY DISK
+;-------------------
+
+fwrite::
+	call	fsettsk			; set up cntr reg & gen housekeeping
+	call	getdata##
+	call	fwrtsec			; write sector to floppy 
+	call	errchk			; check floppy cntr status for errors
+	jr	nz,fwrite		; loop if error
+
+	ret
+
+;------------------
+; READ FLOPPY DISK
+;------------------
+
+fread::
+	call	fsettsk			; set controller reg & do housekeeping
+	call	frdsec			; read a sector from floppy
+	call	putdata##		;
+	call	errchk			; chk status for errors
+	jr	nz,fread		; loop if error and under retry count
+	
+	ret
+
+;----------------------
+; SET TASK FLOPPY DISK
+;----------------------
+
+fsettsk:
+	call	ddbtoix##
+
+	ld	a,1
+	ld	e,(ix+secsizl)
+	ld	d,(ix+secsizh)
+	call	shfl16##
+	ld	a,d
+	ld	(xfercnt##),a
+
+	ld	a,(ix+hdshf)
+	ld	de,(@sect##)
+	call	shfr16##
+
+	call	getdsd			; put dsd addr in hl-reg
+	ld	a,(hl)			; put dsd setting in a-reg 
+	push	af			; save current dsd setting
+	res	2,a			; reset head bit
+	sla	e			; rotate hd no. to dsd-reg position
+	sla	e			; bit 2 is where head select goes
+	or	e			; or hd sel w. den, size, and drv no. 
+	out	(fdsd),a		; send it to floppy controller reg
+
+	call	gettkv
+	ld	a,(hl)			; get track no. where head positioned
+	out	(ftrk),a		; set trk reg to current hd position
+	
+	ld	bc,(@trk##)		; get new track to seek
+	ld	de,(@adrv##)		; get drive to do this seek on
+	cp	c			; compare w track heads positioned on
+	jr	nz,diftrk		; if different, do sek to reload heads
+
+	ld	a,(lastdrv)		; get last drive seek done on
+	cp	e			; compare last drive with current drive
+	jr	z,samtrk		; if same, then same drive and track
+
+diftrk:
+	ld	a,e			; save new drive as old drive
+	ld	(lastdrv),a		; this will mak sure we ld hds if need
+
+	ld	a,c			; save new track
+	ld	(hl),a			; save it in trk vec as new hd position
+	call	fseek			; position heads over new track
+
+samtrk:	
+	ld	a,(@sect##)		; now set sector no. reg.
+	and	(ix+secmsk)		; mask out head no. bits
+	ld	b,a			; save sec. to rd/wrt in b-reg
+
+	pop	af			; restore current dsd setting
+	bit	3,a			; density is bit 3
+	jr	z,fsndsec		; jmp ovr if single density
+	inc	b			; dbl den, so mak sec no frm 0-7 to 1-8
+
+fsndsec:
+	ld	a,b			; put sec no back in a-reg
+	out	(fsec),a		; send it to fpy controller sec reg
+	ret
+
+;--------------------
+; FLOPPY ERROR CHECK
+;--------------------
+
+errchk:
+	ld	hl,rtcnt
+
+	in	a,(fstat)
+	and	a
+	jr	z,errx
+
+	inc	(hl)
+	ld	a,rtrys
+	cp	(hl)
+	ret
+
+errx:
+	ld	(hl),a			; clear retry cnt in case had to retry
+	ret				; return w. no errors
+		
+;----------------------
+; RESTORE FLOPPY HEADS
+;----------------------
+
+frestore:
+	ld	a,(cdsd)		; get physical drive to do restore on
+	out	(fdsd),a		; send it to floppy controller
+
+	call	tstrdy			; test it drive is ready 
+	ret	nz			; return if user abort
+
+	ld	a,frst			; load floppy restore at proper stp rte
+	out	(fcmd),a		; send restore command
+	in	a,(fwait)		; wait until command finished executing
+
+	call	gettkv			; put track vector address in hl
+	xor	a			; clear zero-flag, used as error flag 
+	ld	(hl),a			; store a zero in track vector
+
+	ret
+
+;---------------------
+; SEEK TRACK IN A-REG
+;---------------------
+
+fseek:
+	ld	b,a			; track to seek passed in a-reg 
+	call	tstrdy			; wait for drive to become ready
+	ret	nz			; return w nz-flay set if user abort
+	ld	a,b			; move trk no bk to a, (tstrdy uses a)
+
+fseekntst:
+	out	(fdata),a		; load trk to sek into data register
+	ld	a,fsek			; load a-reg w seek cmd
+	out	(fcmd),a		; tell controller to seek the track
+	call	delay			; must delay 28 us before reading stat
+	in	a,(fwait)		; wait until done with seek
+
+	in	a,(fstat)		; read floppy staus register
+	and	018h			; check for crc and/or seek error
+
+	ret
+
+;--------------------------
+; WRITE A SECTOR TO FLOPPY
+;--------------------------
+
+fwrtsec:
+	in	a,(fstat)		; first check if write protected
+	bit	6,a			; if bit 6 of stat =1, then protected
+	jr	nz,wrtpro		; tell user if protected
+
+	ld	hl,diskbf##		; source starting address	
+	ld	c,fdata
+
+	di				; dont want to be intr or will lose dta
+	ld	a,fwrt			; start write by sending command
+	out	(fcmd),a		; tell ctrler to wrt sec
+	call	delay			; mak sure wait 28 us before stat rd
+fwrtlp:
+	in	a,(fwait)		; check if in floppy interupt
+	or	a			; interupt is bit 7 of fwait, 0=active
+	jp	p,fwrtout		; if zero then no more data   1=nactive
+	outi				; else send dta, inc buf addr
+	jr	fwrtlp			; loop until done
+
+fwrtout:
+	in	a,(fstat)		; read status for errors
+	and	a			; set nz flg if no errors
+	ei				; enable console interupts
+	ret
+
+wrtpro:
+	ld	de,wprtmsg		; pass write prot msg in de to dskerr
+	call	dskerr			; call rout to prn msg and wait for cio
+	jr	z,fwrtsec		; try again if user didnt type ctrl-c
+	ret				; else return w nz flg set
+
+;---------------------------
+; READ A SECTOR FROM FLOPPY 
+;---------------------------
+
+frdsec:
+	ld	hl,diskbf##		; source starting address	
+	ld	c,fdata
+
+	di				; disable console interupts
+	ld	a,frd			; start read by sending command
+	out	(fcmd),a		; tell ctrler to read sector
+	call	delay			; mak sure wait 28 us before rding stat
+frdlp:
+	in	a,(fwait)		; wait until ctrler rdy to snd dta
+	or	a			; check if interupt active
+	jp	p,frdout		; if bit 7 =0, then inter active
+	ini				; else rd dta, increment buff addr
+	jr	frdlp			; loop until interupt =0
+
+frdout:
+	in	a,(fstat)		; check for any errors
+	and	a			; set nz-flag if errors  
+	ei				; enable cnsole interupts
+	ret
+
+;-------------------------------
+; TEST IF FLOPPY DRIVE IS READY
+;-------------------------------
+
+tstrdy:
+	ld	a,0d0h			; reset floppy controller 
+	out	(fcmd),a		; set status reg to current state
+
+	call	delay			; must delay before reading status
+
+	ld	a,(cdsd)		; test if 8 inch drive
+	bit	4,a			; bit 4 =0 if 8", bit 4 =1 if 5"
+	ld	de,0ffffh		; set up time out counter
+	jr	z,tready		; skip index pulse tests if 8 in. drv
+
+	ld	hl,tstnidx		; test for no index pulse if 5 in. drv
+tstnidx:
+	in	a,(fstat)		; check no idx to make sure dsk in drv
+	bit	1,a			; bit 1 =1 if index detected
+	jr	nz,decde		; decrement counter if index found
+
+	ld	hl,tstidx		; test for index pulse if 5 in. drv
+tstidx:
+	in	a,(fstat)		; check for an index pulse 
+	bit	1,a			; bit 1 on status is =0 if no index
+	jr	z,decde			; dec time out counter if no index yet
+
+tready:
+	ld	hl,tstrdx		; test for drive ready 8-5 in. drv
+tstrdx:
+	in	a,(fstat)		; get floppy status
+	bit	7,a			; test not ready bit in status
+	ret	z			; return if not ready bit =0 
+
+decde:
+	call	delay			; delay even move before decrement 
+
+	dec	de			; decrement counter in de-reg
+	ld	a,d			; check if counter is zero
+	or	e			; or high - low byte together
+	jr	z,notready		; jump if time out error
+	jp	(hl)			; jump to tstnidx, tstidx or tstrdx
+	
+notready:
+	ld	de,nrdymsg		; pass disk err actual error msg
+	call	dskerr			; display msg and drv on console
+	jr	z,tstrdy		; retry if user didn't type ctrl-c
+	ret	
+
+;-------------------
+; FLOPPY DISK ERROR
+;-------------------
+
+dskerr:
+	push	bc			;
+	push	de			;
+
+	call	pderr?##		; display T-????, S-???? msg on console
+	pop	hl			; restore pnter to err msg 
+	call	pmsg?##			; display exact error msg on console
+
+	call	conin?##		; wait for user to type a character
+	cp	003h			; check if ctrl-c typed
+
+	push	af
+	ld	hl,crlfmsg
+	call	pmsg?##
+	pop	af
+	pop	bc
+	jr	z,diskerr		; jmp ovr retry if ctrl-c
+
+	xor	a			; set z-flag
+	ld	a,0d0h			; reset floppy controler
+	out	(fcmd),a		; return to retry command
+	ret
+
+diskerr:
+	and	0ffh			; if here, ctrl-c entered, set nz-flag
+	ld	a,rtrys-1		; load a w. no. of retrys minus 1
+	ld	(rtcnt),a		; no retrys, errchk inc rtcnt first
+
+	ret
+
+;------------------
+; GET TRACK VECTOR
+;------------------
+
+gettkv:
+	ld	hl,trkvec		; base addr of trk vec
+	ld	de,(@adrv##)		; offset into trk vec
+	ld	d,0			; prepare for double add
+	add	hl,de			; add offset to base addr
+	ret
+
+;-------------------------------
+; GET DENSITY-SIZE-DRIVE VECTOR
+;-------------------------------
+
+getdsd:
+	ld	hl,dsdvec		; load hl w. login vec base addr
+	ld	bc,(@adrv##)		; fetch logical drv no.
+	ld	b,0			; zero out high byt to prep for dbl add 
+	add	hl,bc			; add in offset to login vector
+	ret
+
+;-------------------------------
+; DELAY 28u SECONDS AT 6 mhz
+;------------------------------
+
+delay:
+	ld	a,3			; initialize loop counter
+delaylp:
+	ex	(sp),hl			; 19 cycles
+	ex	(sp),hl			; 19 cycles
+	dec	a			;  4 cycles
+	jr	nz,delaylp		; 10 cycles = 52 cyc = 8.7 @ 6 mhz
+	ret	
+
+;------------------------------------------------
+; DATA STORAGE
+;------------------------------------------------
+
+nrdymsg: db	', Drive Not Ready',0
+wprtmsg: db	', Write Protected Disk',0
+crlfmsg: db	0dh,0ah,0	
+
+cdph:	 dw	0
+cdsd:	 db	0
+lastdrv: db	0ffh
+rtcnt:	 db	0			; retry counter
+
+dsdvec:	 ds	16,0ffh			; drive login vector
+trkvec:	 ds	16,0ffh			; current head position on drive 
+
+	end

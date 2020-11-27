@@ -1,0 +1,283 @@
+	title	DEVICE INIT. AND SIGN-ON -- CP/M 3.0 -- BANKED / NON-BANKED
+
+	.z80				; Zilog mnemonics 
+
+;-------------------
+; SIO CONTROL PORTS
+;-------------------
+
+sioad	equ	000h			; SIO channel A data    port
+sioac	equ	001h			; SIO channel A control port
+siobd	equ	002h			; SIO channel B data    port
+siobc	equ	003h			; SIO channel B control port
+
+;-------------------
+; PIO CONTROL PORTS
+;-------------------
+
+pioad	equ	004h			; PIO channel A data    port 
+pioac	equ	006h			; PIO channel A control port
+piobd	equ	005h			; PIO channel B data    port
+piobc	equ	007h			; PIO channel B control port
+
+;-------------------
+; CTC CONTROL PORTS
+;-------------------
+
+ctc0	equ	008h			; CTC channel 0 control port
+ctc1	equ	009h			; CTC channel 1 control port
+ctc2	equ	00ah			; CTC channel 2 control port
+ctc3	equ	00bh			; CTC channel 3 control port 
+
+;--------------------------------
+; CTC TIMER CONTROL BIT SETTINGS
+;--------------------------------
+
+inter	equ	080h			; interupt mode (no interupts) 
+counter	equ	040h			; counter mode (timer mode)
+pre256	equ	020h			; prescale value 256 (prescale 16)
+clkris	equ	010h			; clk trigger rising edge (falling edg)
+clkgo	equ	008h			; clk trigger starts clock (auto start)
+tcfol	equ	004h			; time constant follows (no time const)
+reset	equ	002h			; software reset (continue operation)
+ctrlwd	equ	001h			; control word (vector)
+
+;------------------------------------------------
+; INTERUPT VECTOR TABLE RESIDES IN COMMON MEMORY
+;------------------------------------------------
+
+	cseg
+
+isvctbl::
+
+siovec::
+	dw	iret			; SIO ch B transmitter buffer empty
+	dw	iret			; SIO ch B external interrupts
+	dw	iret			; SIO ch B receiver ready
+	dw	iret			; SIO ch B special receive interrupt
+	dw	iret			; SIO ch A transmitter buffer empty
+	dw	iret			; SIO ch A external interrupts
+	dw	sioasvc##		; SIO ch A receiver ready
+	dw	sioasvc##		; SIO ch A special receive interrupt
+ctcvec::
+	dw	iret			; CTC ch 0 svc
+	dw	ctc1svc##		; CTC ch 1 svc
+	dw	iret			; CTC ch 2 svc
+	dw	iret			; CTC ch 3 svc
+
+;----------------------------
+; SAVE - RESTORE SVC UTILITY
+;----------------------------
+
+save::
+	ex	(sp),hl			; save hl on stk and put ret addr in hl
+	push	de			; save de
+	push	bc			; save bc
+	push	af			; save af
+
+	call	go			; put restore address on tos
+
+restore:
+	pop	af			; reinstate cpu to state before intr 
+	pop	bc			; restore bc
+	pop	de			; restore de
+	pop	hl			; restore hl
+
+	ld	sp,(ssp)		; restore system stack pointer
+iret:
+	ei				; enable interupts and return
+	reti
+
+go:
+	jp	(hl)			; ret to next inst after call save
+
+;------------------
+; SVC DATA STORAGE
+;------------------
+
+ssp::	dw	0
+	ds	020h
+istk::	
+
+;-----------------------------------------------
+; DEVICE INITALIZATION RESIDES IN BANKED MEMORY
+;-----------------------------------------------
+
+	dseg
+
+;-------------------------------
+; INTERUPT VECTOR INITALIZATION
+;-------------------------------
+
+init?::
+
+	ld	hl,isvctbl		; put interupt table vector in hl
+	ld	a,h			; put high byte of intr tbl vec in a
+	ld	i,a			; initalize interupt vector
+	ld	a,l			; put low byte of intr tbl vec in a-reg
+	ld	(lsiov),a		; put low byte in sio ch. b init block
+	im	2			; set interupt mode to 2
+
+;-------------------------------
+; I/O REDIRECTION INITALIZATION
+;-------------------------------
+
+redinit:
+	ld	hl,08000H		; device no. 0 is console (sio ch. a)
+	ld	(@civec##),hl		; console input  vector
+	ld	(@covec##),hl		; console output vector
+
+	ld	hl,04000H		; device no. 1 is auxiliary (sio ch. b)
+	ld	(@aivec##),hl		; auxiliary input  vector
+	ld	(@aovec##),hl		; auxiliary output vector
+
+	ld	hl,02000h		; device no. 2 is list (pio ch. a & b)
+	ld	(@lovec##),hl		; output only
+
+;-------------------
+; CTC INITALIZATION 
+;-------------------
+
+ctcinit:
+	ld	a,counter+tcfol+reset+ctrlwd 
+	out	(ctc0),a		; initalize ctc channel 0
+
+	ld	a,250d			; time constant for channel 0
+	out	(ctc0),a		; channel 0 is expecting this
+
+	ld	a,inter+counter+tcfol+reset+ctrlwd
+	out	(ctc1),a		; initalize ctc channel 1
+
+	ld	a,100d			; time constant for ctc channel 1
+	out	(ctc1),a		; this channel issues interupts
+
+	ld	hl,ctcvec		; addr of ctc svc in inter table 
+	ld	a,l			; need only the low byte of addr
+	out	(ctc0),a		; better be on a 8-byte block boundry
+					; ie. lower 3-bits =0
+;-------------------
+; SIO INITALIZATION
+;-------------------
+
+sioinit:
+	ld	hl,isioa
+	ld	bc,isioal*256+sioac
+	otir
+
+	ld	hl,isiob
+	ld	bc,isiobl*256+siobc
+	otir
+
+;-------------------
+; PIO INITALIZATION
+;-------------------
+
+pioinit:
+	ld	a,0fh			; use both pio ch A & B w. parallel lst
+	out	(pioac),a		; pio ch A is output mode
+
+	ld	a,0cfh			; pio ch b is bit mode
+	out	(piobc),a		; channel b has pio busy and strobe
+	ld	a,00011111b		; in  = bsy,op,sel,flt,-ack
+	out	(piobc),a		; out = pb5,-prime,strobe
+
+	xor	a			; clear a-reg
+	out	(piobd),a		; reset strobe 
+
+;-----------------------------------
+; DISPLAY COLD BOOT SIGN ON MESSAGE
+;-----------------------------------
+
+psignon:
+	ld	bc,(@civec##)		; get console input vector
+	call	getdev			; put ascii code of ch. no. in c 
+	ld	(cdevno),a
+
+	ld	hl,signon		; point to first part of signon message
+	call	pmsg?##			; display most of signon message
+
+	ld	bc,(@lovec##)		; get list output vector
+	call	getdev			; ret w. ascii code of ch no in c & a
+	ld	(pdevno),a		; save prn dev. no. in case serial
+	cp	'2'			; check if parallel 
+	jr	nz,serprn		; jump if serial
+
+parprn:
+	ld	hl,ppmsg		; load hl w. parallel printer message
+	jr	signonx			; display message
+serprn:
+	ld	hl,spmsg		; load hl w. serial printer message
+signonx:
+	call	pmsg?##			; display message and exit
+
+	ret				; exit from 'init?'
+
+;-------------------
+; GET DEVICE NUMBER
+;-------------------
+
+getdev:
+	ld	a,'0'-1			; init a to ascii val of zero
+ciochno:
+	inc	a			; incrment to next ascii no.
+	rlc	b			; rotate next bit of redir vec into car
+	jr	nc,ciochno		; loop until find a bit that is set
+	ld	c,a			; ret w. ascii val of dev no in a and c
+	ret
+
+;-----------------------------------
+; SIO CHANNEL A INITALIZATION TABLE
+;-----------------------------------
+
+isioa:
+	db	018h			; channel reset
+	db	001h			; write reg 1
+	db	018h			; int on all recv char (no parity)
+	db	003h			; write reg 3
+	db	0c1h			; rx 8-bit char, rx enable
+	db	004h			; write reg 4
+	db	044h			; x16 clock, 1 stop bit
+	db	005h			; write reg 5
+	db	0eah			; dtr tx 8-bit char, tx enable, rts
+	db	000h			; read reg 0
+
+isioal	equ	$-isioa			; length of sio ch a init sequence
+
+;-----------------------------------
+; SIO CHANNEL B INITALIZATION TABLE
+;-----------------------------------
+
+isiob:
+	db	018h			; channel reset
+	db	001h			; write reg 1
+	db	004h			; status affects interrupt vector
+	db	002h			; write reg 2
+lsiov:	db	0			; inter vec tbl low byte addr
+	db	003h			; write reg 3
+	db	0c1h			; rx 8-bit char, rx enable
+	db	004h			; write reg 4
+	db	044h			; x16 clock, 1 stop bit
+	db	005h			; write reg 5
+	db	0eah			; dtr, tx 8-bit char, tx enable, rts
+	db	000h			; read reg 0
+
+isiobl	equ	$-isiob			; length of sio ch b init sequence
+
+;----------------------------
+; COLD BOOT SIGN ON MESSAGES
+;----------------------------
+
+signon:	db	0dh,0ah
+	db	'Super Bios v. 3.0', 0dh,0ah
+	db	'CP/M 3.0 installed',0dh,0ah,0ah
+	db	'Default console is serial device '
+cdevno:	db	040h,0dh,0ah
+prnmsg:	db	'Default printer is ',0
+
+ppmsg:	db	'parallel device',0ah,0ah,0dh,0
+spmsg:	db	'serial device'
+pdevno: db	041h,0ah,0ah,0dh,0
+
+
+	end
+

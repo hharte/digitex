@@ -1,0 +1,12 @@
+ADC_CPM3.img
+F8.LDR
+GENCPM.DAT
+Q2020.LDR
+bios3.spr
+cpm3.sys
+osload.sys
+*.com
+*.prn
+*.rel
+*.sym
+*.$$$

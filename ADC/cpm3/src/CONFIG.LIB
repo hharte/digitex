@@ -1,0 +1,22 @@
+;
+;Configuration for ADC Super Six
+;
+
+false   equ     0                       ;logical equates
+true    equ     not false
+
+;
+; DISK DRIVE TYPE
+;
+MINI    EQU     false                   ; SET TO TRUE FOR 5.25 IN. DISKS
+FORTY8  EQU     false                   ; SET TO TRUE FOR 48TPI DRIVES
+
+trk0dd  equ     false                   ;true = track 00 double density
+dsd     equ     true                    ;true = double sided for double density use
+
+; HDC-1001 Hard Disk Controller Base Address
+;
+; This distribution was originally set up to have the disk
+; controller at 050H instead.
+;
+HDBASE  EQU     0E0H                    ; Base of HDC1001

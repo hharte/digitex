@@ -1,0 +1,107 @@
+	title	DISK DRIVE DEFINITIONS -- CP/M 3.0 -- BANKED / NON-BANKED
+
+	include	C3.LIB
+
+	.z80
+
+	dskdef	<f8,f8,f548,f596> ; ,q2020>
+
+	dseg
+
+;-------------------
+; GET DATA TO WRITE
+;-------------------
+
+getdata::
+	ld	hl,diskbf		; destination
+	ld	de,(@dma##)		; source
+getlp:
+	ld	bc,(@dbnk##)		; source bank 
+	ld	b,0			; destination bank
+	call	xmove?##
+
+	ld	bc,080h
+	call	move?##
+
+	ld	a,(xfercnt)
+	dec	a
+	ld	(xfercnt),a
+	jr	nz,getlp
+
+	ret
+
+;---------------
+; PUT DATA READ
+;---------------
+
+putdata::
+	ld	hl,(@dma##)		; destination
+	ld	de,diskbf		; source
+putlp:
+	ld	a,(@dbnk##)		; destination bank
+	ld	b,a
+	ld	c,0			; source bank
+	call	xmove?##
+
+	ld	bc,080h
+	call	move?##
+
+	ld	a,(xfercnt)
+	dec	a
+	ld	(xfercnt),a
+	jr	nz,putlp
+
+	ret
+
+;-----------------------
+; SET IX TO DDB ADDRESS
+;-----------------------
+
+ddbtoix::
+	ld	hl,ddbtbl		; set up to calc current ddb addr
+	ld	de,(@adrv##)		; use logical drv no as index to table
+	ld	d,0			; zero high byte of index for dbl add
+
+	add	hl,de			; add logical drv no to base tbl addr
+	add	hl,de			; tbl entrys are wrds, so do add twice
+
+	ld	e,(hl)			; fetch contents of table entry
+	inc	hl			; point to high byte of addr
+	ld	d,(hl)			; get high byte
+
+	push	de			; put ddb addr into ix-reg
+	pop	ix			; by useing ix reg we save instructions
+
+	ret
+
+;--------------------
+; 16-BIT SHIFT RIGHT
+;--------------------
+
+shfr16::
+	and	a			; a-reg has no of shifts to perform
+shfrlp:
+	ret	z
+	srl	d			; shift msb first, bit 0 into carry
+	rr	e			; rotate carry into bit 7 of lsb
+	dec	a			; decrement shift counter
+	jr	shfrlp 			; loop until finished
+
+;-------------------
+; 16-BIT SHIFT LEFT
+;-------------------
+
+shfl16::
+	and	a
+shfllp:
+	ret	z
+	sla	e
+	rl	d
+	dec	a
+	jr	shfllp
+	
+xfercnt:: db	0
+diskbf::  ds	0400h
+	
+	end
+

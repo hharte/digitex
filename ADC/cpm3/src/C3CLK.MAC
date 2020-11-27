@@ -1,0 +1,66 @@
+	title	CTC INTERUPT SERVICE ROUTINE -- CP/M 3.0 -- BANKED / NON-BANKED
+
+	.z80
+
+;----------------------------------------------
+; CTC SERVICE ROUTINE RESIDES IN COMMON MEMORY
+;----------------------------------------------
+
+	cseg
+
+ctc1svc::
+	ld	(ssp##),sp		; save system stack pointer
+	ld	sp,istk##		; use interupt stack while in isvc
+	call	save##			; save cpu state
+
+inctic:
+	ld	hl,ticcnt		; tic counter counts 1/60 sec
+	inc	(hl)			; increment tic counter
+	ld	a,(hl)			; fetch ticcnt for compare 
+	cp	60			; check if counted 60 tics yet
+	ret	nz			; return to restore cpu state
+	ld	(hl),0			; zero tic counter
+
+incsec:
+	ld	hl,@sec##		; service second counter in scb
+	inc	(hl)			; increment second counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @sec is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd
+	cp	060h			; check if one minute elasped
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero second count
+
+incmin:
+	ld	hl,@min##		; service minute counter in scb
+	inc	(hl)			; increment minute counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @min is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd 
+	cp	060h			; check if one hour elasped
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero minute count
+
+inchr:
+	ld	hl,@hour##		; service hour counter in scb
+	inc	(hl)			; increment hour counter
+	ld	a,(hl)			; fetch for daa and compare
+	daa				; @hour is bcd so do daa after inc
+	ld	(hl),a			; store adjusted bcd
+	cp	024h			; check if next day
+	ret	nz			; return to restore cpu state if under
+	ld	(hl),0			; zero hour count
+
+incday:
+	ld	hl,@date##		; service day counter
+	inc	(hl)			; increment day counter
+	ret
+
+;--------------
+; DATA STORAGE
+;--------------
+
+ticcnt:	db	0			; interupt counter (counts 1/60 sec)
+
+	end
+

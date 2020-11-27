@@ -1,0 +1,50 @@
+	title	CHARACTER I/O DRIVER -- CP/M 3.0 -- LOADER
+
+	.z80
+
+;---------------
+; CONSOLE INPUT
+;---------------
+
+ci?::
+	call	cist?			; get input status
+	jr	z,ci?			; loop until character received
+	in	a,(0)			; get character from sio ch a
+	and	07fh			; mask high order bit
+	ret
+
+;----------------
+; CONSOLE OUTPUT
+;----------------
+
+co?::
+	call	cost?			; get status
+	jr	z,co?			; go back if not ready
+	ld	a,c			; put character to send in a
+	out	(0),a			; send char to sio ch a
+	ret
+
+;----------------------
+; CONSOLE INPUT STATUS
+;----------------------
+
+cist?::	
+	in	a,(1)			; get status of sio ch a
+	and	1			; check if character recieved
+	ret	z			; no character waiting
+	ld	a,0ffh			; character waiting
+	ret
+
+;-----------------------
+; CONSOLE OUTPUT STATUS
+;-----------------------
+
+cost?::
+	in	a,(1)			; get status	
+	and	4			; ready?
+	ret	z			; no
+	or	0ffh			; else set ready
+	ret				; and exit
+
+	end
+
