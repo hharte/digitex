@@ -12,6 +12,9 @@ title	CP/M 2.2 BIOS -- A.D.C. SUPER QUAD - SUPER SIX SBC -- VERSION 2.4
 	include	SUPRBIOS.LIB		; contains all macros used 
 	include CONFIG.LIB		; Global configuration
 
+intrin	equ	false			; Don't use interrupts for SIO A,
+							; they not supported by SIMH.
+
 ;---------------------------
 ; INITAL DRIVE AND USER NO.
 ;---------------------------
@@ -214,8 +217,14 @@ isrtbl:
 
 	dw	iret			; channel A transmitter buffer empty
 	dw	iret			; channel A external interrupts
+	if	intrin
 	dw	sioaisr			; channel A receiver ready
 	dw	sioaisr			; channel A special recieve interrupt
+	else
+	dw	iret			; channel A receiver ready
+	dw	iret			; channel A receiver ready
+	endif
+
 ctcvec:
 	dw	iret			; CTC ch 0 svc
 	dw	ctc1isr			; CTC ch 1 svc
@@ -358,6 +367,7 @@ sioain:
 	call	sioaist			; check if character in buffer
 	jr	z,sioain		; loop until character available
 
+	if intrin
 	di				; disable con int while modifing ptrs
 
 	ld	de,(coptr)		; get ciptr and coptr 
@@ -373,6 +383,10 @@ sioain:
 	ld	a,(hl)			; return with char in a-reg
 
 	ei				; ok to re-enable interupts
+	else
+	in	a,(sioad)		; read data just recieved
+	and	07fh			; mask off parity and return to caller
+	endif
 	ret
 
 ;------------------
@@ -392,11 +406,16 @@ sioaot:
 ;------------------------
 
 sioaist:
+	if intrin
 	ld	hl,(coptr)		; check if any char have been input
 	ld	a,h			; put ciptr into a
 	sub	l			; subtract ciptr from coptr
 	ret	z			; if ciptr=coptr then no characters
-
+    else
+	in	a,(sioac)		; read in status for sio ch. a
+	and	1
+	ret	z			; no character waiting
+	endif
 	ld	a,0ffh			; else return w. true flag in a
 	ret
 
@@ -2215,7 +2234,11 @@ nxtten:
 ;---------------------------
 
 signon:
-	db	0dh,0ah,'Super Bios v. 2.4',0dh,0ah
+	db	0dh,0ah,'Super Bios v. 2.4'
+	if not intrin
+	db ' (polled)'
+	endif
+	db 0dh,0ah
 syssiz:	db	0,0,'K CP/M 2.2 installed',0dh,0ah,0ah,'$'
 
 ;-------------------------------
@@ -2225,7 +2248,11 @@ syssiz:	db	0,0,'K CP/M 2.2 installed',0dh,0ah,0ah,'$'
 isioa:
 	db	018h			; channel reset
 	db	001h			; write reg 1
+	if intrin
 	db	018h			; Int on all recv char (no parity)
+	else
+	db	000h			; Disable serial interrupts.
+	endif
 	db	003h			; write reg 3
 	db	0c1h			; Rx 8-bit char, Rx enable
 	db	004h			; write reg 4
