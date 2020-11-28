@@ -20,3 +20,5 @@ dsd     equ     true                    ;true = double sided for double density 
 ; controller at 050H instead.
 ;
 HDBASE  EQU     0E0H                    ; Base of HDC1001
+
+INTRIN	EQU	false

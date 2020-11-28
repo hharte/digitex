@@ -2,6 +2,8 @@
 
 	.z80				; Zilog mnemonics 
 
+	MACLIB	CONFIG.LIB
+
 ;-------------------
 ; SIO CONTROL PORTS
 ;-------------------
@@ -57,8 +59,13 @@ siovec::
 	dw	iret			; SIO ch B special receive interrupt
 	dw	iret			; SIO ch A transmitter buffer empty
 	dw	iret			; SIO ch A external interrupts
+	if	intrin
 	dw	sioasvc##		; SIO ch A receiver ready
 	dw	sioasvc##		; SIO ch A special receive interrupt
+	else
+	iret
+	iret
+	endif
 ctcvec::
 	dw	iret			; CTC ch 0 svc
 	dw	ctc1svc##		; CTC ch 1 svc
@@ -232,7 +239,11 @@ ciochno:
 isioa:
 	db	018h			; channel reset
 	db	001h			; write reg 1
+	if intrin
 	db	018h			; int on all recv char (no parity)
+	else
+	db	000h			; Disable serial interrupts.
+	endif
 	db	003h			; write reg 3
 	db	0c1h			; rx 8-bit char, rx enable
 	db	004h			; write reg 4
@@ -268,7 +279,11 @@ isiobl	equ	$-isiob			; length of sio ch b init sequence
 ;----------------------------
 
 signon:	db	0dh,0ah
-	db	'Super Bios v. 3.0', 0dh,0ah
+	db	'Super Bios v. 3.0'
+	if not intrin
+	db	' (polled)'
+	endif
+	db	0dh,0ah
 	db	'CP/M 3.0 installed',0dh,0ah,0ah
 	db	'Default console is serial device '
 cdevno:	db	040h,0dh,0ah

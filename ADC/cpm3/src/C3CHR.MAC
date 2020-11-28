@@ -4,6 +4,8 @@
 
 	MACLIB	MODEBAUD.LIB
 
+intrin equ 0
+
 ;-----------------
 ; BAUD RATE PORTS
 ;-----------------
@@ -122,11 +124,12 @@ ciwait:
 	jr	nz,siobin		; jump if device 1.
 
 sioain:
+	if intrin
 	di				; no interupts while using bf ptrs
 
 	ld	de,(outptri)		; d-reg  = inptri,  e-reg = outptri
 	ld	d,0			; de-reg = outptri, ofset to nx chr out
-	lä	hl,inpbuf		; get base addr of console i/o buffer
+	ld	hl,inpbuf		; get base addr of console i/o buffer
 	add	hl,de			; add offset of nx chr out to bf addr
 
 	ld	a,e			; put outptri into a-reg  
@@ -136,6 +139,10 @@ sioain:
 
 	ld	a,(hl)			; pass cp/m char in a-reg
 	ei				; interupts ok now
+	else
+	in	a,(sioad)		; read data just recieved
+	and	07fh			; mask off parity and return to caller
+	endif
 	ret
 
 siobin:
@@ -191,10 +198,16 @@ pioist:
 	ret
 
 sioaist:
+	if intrin
 	ld	hl,(outptri)		; h-reg = inptri, l-reg = outptri  
 	ld	a,h			; intptri is bf offset to nx chr in
 	sub	l			; outptri is bf offset to nx chr out
 	ret	z			; if intptri = outptri then no chr
+    else
+	in	a,(sioac)		; read in status for sio ch. a
+	and	1
+	ret	z			; no character waiting
+	endif
 
 	ld	a,0ffh			; let cp/m know char available
 	ret
@@ -220,7 +233,7 @@ lstost:
 	in	A,(piobd)		; get pio status
 	and	1			; busy = 0, not busy = 1
 	ret	z			; if prn busy,  return with a-reg = 0
-	lä	A,0ffh			; prn not busy, return with a-reg = 0ff
+	ld	A,0ffh			; prn not busy, return with a-reg = 0ff
 	ret	
 
 sioost:
@@ -253,7 +266,7 @@ sioasvc::
 	inc	a
 	and	inbfsz-1
 	cp	l			; chk if nx in = nx out
-	jò	nz,rxchr		; jump iæ rooí foò more
+	jr	nz,rxchr		; jump if room for more
 
 ciobo:
 	in	a,(sioad)		; cio buffer overflow, clear input port
