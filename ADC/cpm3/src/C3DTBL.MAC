@@ -4,7 +4,7 @@
 
 	.z80
 
-	dskdef	<f8,f8,f548,f596> ; ,q2020>
+	dskdef	<f8,f8,q2020> 		; f548,f596>
 
 	dseg
 
