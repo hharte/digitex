@@ -1,0 +1,79 @@
+; SIMH configuration file for the Digitex Model 8200
+;
+; Consists of:
+;     * ADC Super-Six SBC with two 8" floppies
+;     * ADC HDC-1001 Hard Disk Controller with a Quantum Q2020 drive.
+;     * DIGITEX Monitor version 1.2.A -- 10/06/83
+;     * AB Digital Design B810 256K DRAM card with common area from 0-3FFFh.
+;
+set cpu 1M
+set cpu banked
+set cpu noitrap
+set cpu z80
+set cpu noaltairrom
+set hdsk dis
+set cpu looponhalt
+set debug stdout
+
+; Use telnet for serial console, Liberty Freedom 100 terminal emulation required.
+;set telnet 10000
+
+; Set up banked memory: AB Digital Design B810 board for OASIS
+; While the actual card is 256K, SIMH simulates 768K.
+set cpu b810
+d cpu commonlow 1
+d cpu common 4000
+
+; Configure Console UART (Z80-SIO)
+set sio ansi
+set sio verbose
+set sio nosleep
+set sio port=00/0/0/0/0/F/0/T
+set sio port=01/0/41/0/04/F/0/F
+
+; Configure second serial port.
+set sio port=02/0/0/0/0/F/0/T
+set sio port=03/0/41/0/04/F/0/F
+
+attach sio 23
+
+; Configure WD2793 disk controller on the Super-Six SBC
+set wd179x en
+set wd179x iobase=0c
+set wd179x debug=ERROR
+
+; Configure ADC Super-Six CPU Board
+set adcs6 en
+set adcs6 ROM=DIGITEX
+att adcs60 ../OASIS/DIGI56.imd
+set adcs6 debug=error;uart;bank;pio;dma;ctc
+
+; Configure Super-Six J7 jumper to use the S-100 RAM card.
+d adcs6 j7 4f
+
+; Configure ADC HDC-1001 Disk Controller
+set adchd en
+set adchd iobase=e0
+set adchd debug=error
+att adchd OASIS_Q2020.dsk
+; OASIS uses 256-byte sectors.
+set adchd0 geometry=C:512/H:4/S:32/N:256
+
+; Enable keyboard interrupt for console SIO.
+d keybdh 2714
+set sio interrupt
+
+; Timer tick for task switching interrupt.
+; Note, the OASIS clock does not work.
+d simh timh 310d
+d simh timd 10000
+set simh timeron
+
+;break 0000	; start of NUCLEUS
+;break c000	; Floppy Cold Start Loader Entry
+;break 8000	; Hard Disk Cold Start Loader Entry
+
+; Boot Monitor
+;boot adcs6
+g f000
+
