@@ -21,6 +21,8 @@ I could not find much documentation about this machine online.  It is an all-in-
 *   [California Computer Systems 2719](https://deramp.com/downloads/mfe_archive/010-S100%20Computers%20and%20Boards/00-California%20Computer%20Systems/10-CCS%20S100%20Boards/CCS%202719%202%20Parallel%202%20Serial/) dual SIO / dual PIO card.
 *   [California Computer Systems 2704](https://deramp.com/downloads/mfe_archive/010-S100%20Computers%20and%20Boards/00-California%20Computer%20Systems/10-CCS%20S100%20Boards/CCS%202704%20Terminator%20Board/) bus terminator card.
 
+![alt_text](https://raw.githubusercontent.com/hharte/digitex/master/images/DIGITEX-8200.JPG "image_tooltip")
+
 I bought this machine many years ago, but did not have a working 8-inch boot floppy disk for it.
 
 Around 2008, I added support for this CPU card and some of the hardware to the [SIMH simulator](https://github.com/simh/simh). Using SIMH, I was able to port a customized BIOS (CBIOS) for this machine and get CP/M 2.2 booting in simulation. With the simulator, I created a bootable disk image in ImageDisk (.IMD) format. This .IMD boot image was then transferred to a real 8" floppy disk. Using this disk, I was able to boot the computer.
