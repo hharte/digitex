@@ -3,7 +3,7 @@
 ; Copyright (c) 2020 Howard M. Harte.
 ; https://github.com/hharte/digitex
 ;
-; Floppy Disk Boot
+; Hard Disk Boot
 ;
 ; Consists of:
 ;     * ADC Super-Six SBC with two 8" floppies
@@ -11,7 +11,7 @@
 ;     * DIGITEX Monitor version 1.2.A -- 10/06/83
 ;     * AB Digital Design B810 256K DRAM card with common area from 0-3FFFh.
 ;
-; You can create a bootable hard disk image using the DIGI56.IMD
+; You need to first create a bootable hard disk image using the DIGI56.IMD
 ; floppy disk image.
 ;
 ; Boot the floppy and run "INITSYS 8200" to create the bootable hard disk.
@@ -57,7 +57,7 @@ set wd179x debug=ERROR
 ; Configure ADC Super-Six CPU Board
 set adcs6 en
 set adcs6 ROM=DIGITEX
-att adcs60 ../OASIS/DIGI56.imd
+;att adcs60 ../OASIS/DIGI56.imd
 set adcs6 debug=error;uart;bank;pio;dma;ctc
 
 ; Configure Super-Six J7 jumper to use the S-100 RAM card.
@@ -80,10 +80,6 @@ set sio interrupt
 d simh timh 310d
 d simh timd 10000
 set simh timeron
-
-;break 0000	; start of NUCLEUS
-;break c000	; Floppy Cold Start Loader Entry
-;break 8000	; Hard Disk Cold Start Loader Entry
 
 ; Boot Digitex Monitor ROM at F000h
 g f000
