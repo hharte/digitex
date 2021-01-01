@@ -75,10 +75,9 @@ set adchd0 geometry=C:512/H:4/S:32/N:256
 d keybdh 2714
 set sio interrupt
 
-; Timer tick for task switching interrupt.
-; Note, the OASIS clock does not work.
+; Timer tick for the RTC, 1Hz.
 d simh timh 310d
-d simh timd 10000
+d simh timd 1
 set simh timeron
 
 ; Boot Digitex Monitor ROM at F000h
