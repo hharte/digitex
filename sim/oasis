@@ -74,6 +74,7 @@ set adchd0 geometry=C:512/H:4/S:32/N:256
 ; Enable keyboard interrupt for console SIO.
 d keybdh 2714
 set sio interrupt
+d irqhack 1
 
 ; Timer tick for the RTC, 1Hz.
 d simh timh 310d
