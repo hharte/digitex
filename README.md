@@ -1,4 +1,4 @@
-# **DIGITEX 8200 S-100 Computer Ressurection**
+# **DIGITEX 8200 S-100 Computer Resurrection**
 
 It is possible to revive old hardware using computer simulation. This project provides materials I gathered and generated while ago when I was bringing an old Digitex 8200 computer back to life.
 
