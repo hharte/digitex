@@ -57,7 +57,7 @@ set wd179x debug=ERROR
 ; Configure ADC Super-Six CPU Board
 set adcs6 en
 set adcs6 ROM=DIGITEX
-att adcs60 ../OASIS/DIGI56.imd
+att adcs60 ../OASIS/DIGI56.IMD
 set adcs6 debug=error;uart;bank;pio;dma;ctc
 
 ; Configure Super-Six J7 jumper to use the S-100 RAM card.
