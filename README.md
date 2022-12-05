@@ -30,7 +30,7 @@ I bought this machine many years ago, but did not have a working 8-inch boot flo
 
 Around 2008, I added support for this CPU card and some of the hardware to the [SIMH simulator](https://github.com/open-simh/simh). Using SIMH, I was able to port a customized BIOS (CBIOS) for this machine and get CP/M 2.2 booting in simulation. With the simulator, I created a bootable disk image in [ImageDisk](http://dunfield.classiccmp.org/img/) (.IMD) format. This .IMD boot image was then transferred to a real 8" floppy disk. Using this disk, I was able to boot the computer.
 
-In 2021, I decided to get the machine running again, this time using the 8-inch Qume 2020 hard drive.  To my surprise, the machine booted up OASIS 5.6 Multiuser.  I was able to use CP/M to back up the hard drive to 16 8-inch floppies, and then reassemble the pieces into a 16MB file that works using a [DREM2 hard drive emulator](https://www.drem.info/), and also in SIMH [with some modifications in this fork](https://github.com/hharte/simh/tree/digitex).
+In 2021, I decided to get the machine running again, this time using the 8-inch Qume 2020 hard drive.  To my surprise, the machine booted up OASIS 5.6 Multiuser.  I was able to use CP/M to back up the hard drive to 16 8-inch floppies, and then reassemble the pieces into a 16MB file that works using a [DREM2 hard drive emulator](https://www.drem.info/), and also in [SIMH](https://github.com/open-simh/simh).
 
 Included in the distribution are:
 
@@ -47,14 +47,14 @@ Included in the distribution are:
 These instructions are for Linux and MacOS.  The simulator can also be built for Windows using Visual Studio 2008 or later.
 
 
-## Download and compile SIMH/AltairZ80 from the digitex branch
+## Download and compile SIMH/AltairZ80
 
 
 ```
 $ mkdir -p ~/src
 $ cd ~/src
-$ git clone https://github.com/hharte/open-simh.git -b digitex
-$ cd open-simh
+$ git clone https://github.com/open-simh/simh.git
+$ cd simh
 $ make altairz80
 ```
 
@@ -67,7 +67,7 @@ $ make altairz80
 $ cd ~/src
 $ git clone https://github.com/hharte/digitex.git
 $ cd digitex/sim
-$ ../../open-simh/BIN/altairz80 oasis_hd
+$ ../../open-simh/BIN/altairz80 oasis_hd.ini
 
 Altair 8800 (Z80) simulator V4.0-0 Current        git commit id: 69ab285e
 
